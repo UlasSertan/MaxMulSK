@@ -459,3 +459,109 @@ events:
       LTO support using: LLVM version 17.0.0 (static support for 29, runtime is 29)
       TAPI support using: Apple TAPI version 17.0.0 (tapi-1700.0.3.5)
 ...
+
+---
+events:
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/FindOpenMP.cmake:238 (try_compile)"
+      - "/Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/FindOpenMP.cmake:506 (_OPENMP_GET_FLAGS)"
+      - "CMakeLists.txt:6 (find_package)"
+    description: "Detecting C OpenMP compiler info"
+    directories:
+      source: "/Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-CerIbg"
+      binary: "/Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-CerIbg"
+    cmakeVariables:
+      CMAKE_C_FLAGS: ""
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_OSX_ARCHITECTURES: ""
+      CMAKE_OSX_DEPLOYMENT_TARGET: "15.3"
+      CMAKE_OSX_SYSROOT: "/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk"
+    buildResult:
+      variable: "OpenMP_COMPILE_RESULT_C_Xclang fopenmp"
+      cached: true
+      stdout: |
+        Change Dir: '/Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-CerIbg'
+        
+        Run Build Command(s): /Applications/CLion.app/Contents/bin/ninja/mac/aarch64/ninja -v cmTC_24264
+        [1/2] /Library/Developer/CommandLineTools/usr/bin/cc   -Xclang -fopenmp -v -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -MD -MT CMakeFiles/cmTC_24264.dir/OpenMPTryFlag.c.o -MF CMakeFiles/cmTC_24264.dir/OpenMPTryFlag.c.o.d -o CMakeFiles/cmTC_24264.dir/OpenMPTryFlag.c.o -c /Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-CerIbg/OpenMPTryFlag.c
+        FAILED: CMakeFiles/cmTC_24264.dir/OpenMPTryFlag.c.o 
+        /Library/Developer/CommandLineTools/usr/bin/cc   -Xclang -fopenmp -v -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -MD -MT CMakeFiles/cmTC_24264.dir/OpenMPTryFlag.c.o -MF CMakeFiles/cmTC_24264.dir/OpenMPTryFlag.c.o.d -o CMakeFiles/cmTC_24264.dir/OpenMPTryFlag.c.o -c /Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-CerIbg/OpenMPTryFlag.c
+        Apple clang version 17.0.0 (clang-1700.0.13.5)
+        Target: arm64-apple-darwin24.3.0
+        Thread model: posix
+        InstalledDir: /Library/Developer/CommandLineTools/usr/bin
+         "/Library/Developer/CommandLineTools/usr/bin/clang" -cc1 -triple arm64-apple-macosx15.3.0 -Wundef-prefix=TARGET_OS_ -Wdeprecated-objc-isa-usage -Werror=deprecated-objc-isa-usage -Werror=implicit-function-declaration -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name OpenMPTryFlag.c -mrelocation-model pic -pic-level 2 -mframe-pointer=non-leaf -fno-strict-return -ffp-contract=on -fno-rounding-math -funwind-tables=1 -fobjc-msgsend-selector-stubs -target-sdk-version=15.5 -fvisibility-inlines-hidden-static-local-var -fdefine-target-os-macros -fno-assume-unique-vtables -fno-modulemap-allow-subdirectory-search -target-cpu apple-m1 -target-feature +zcm -target-feature +zcz -target-feature +v8.5a -target-feature +aes -target-feature +altnzcv -target-feature +ccdp -target-feature +complxnum -target-feature +crc -target-feature +dotprod -target-feature +fp-armv8 -target-feature +fp16fml -target-feature +fptoint -target-feature +fullfp16 -target-feature +jsconv -target-feature +lse -target-feature +neon -target-feature +pauth -target-feature +perfmon -target-feature +predres -target-feature +ras -target-feature +rcpc -target-feature +rdm -target-feature +sb -target-feature +sha2 -target-feature +sha3 -target-feature +specrestrict -target-feature +ssbs -target-abi darwinpcs -debugger-tuning=lldb -fdebug-compilation-dir=/Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-CerIbg -target-linker-version 1167.5 -v -fcoverage-compilation-dir=/Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-CerIbg -resource-dir /Library/Developer/CommandLineTools/usr/lib/clang/17 -dependency-file CMakeFiles/cmTC_24264.dir/OpenMPTryFlag.c.o.d -skip-unused-modulemap-deps -MT CMakeFiles/cmTC_24264.dir/OpenMPTryFlag.c.o -sys-header-deps -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -internal-isystem /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/local/include -internal-isystem /Library/Developer/CommandLineTools/usr/lib/clang/17/include -internal-externc-isystem /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/include -internal-externc-isystem /Library/Developer/CommandLineTools/usr/include -Wno-reorder-init-list -Wno-implicit-int-float-conversion -Wno-c99-designator -Wno-final-dtor-non-final-class -Wno-extra-semi-stmt -Wno-misleading-indentation -Wno-quoted-include-in-framework-header -Wno-implicit-fallthrough -Wno-enum-enum-conversion -Wno-enum-float-conversion -Wno-elaborated-enum-base -Wno-reserved-identifier -Wno-gnu-folding-constant -ferror-limit 19 -stack-protector 1 -fstack-check -mdarwin-stkchk-strong-link -fblocks -fencode-extended-block-signature -fregister-global-dtors-with-atexit -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -fmax-type-align=16 -fcommon -fcolor-diagnostics -fopenmp -clang-vendor-feature=+disableNonDependentMemberExprInCurrentInstantiation -fno-odr-hash-protocols -clang-vendor-feature=+enableAggressiveVLAFolding -clang-vendor-feature=+revert09abecef7bbf -clang-vendor-feature=+thisNoAlignAttr -clang-vendor-feature=+thisNoNullAttr -clang-vendor-feature=+disableAtImportPrivateFrameworkInImplementationError -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_24264.dir/OpenMPTryFlag.c.o -x c /Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-CerIbg/OpenMPTryFlag.c
+        clang -cc1 version 17.0.0 (clang-1700.0.13.5) default target arm64-apple-darwin24.3.0
+        ignoring nonexistent directory "/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/local/include"
+        ignoring nonexistent directory "/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/System/Library/SubFrameworks"
+        ignoring nonexistent directory "/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/Library/Frameworks"
+        #include "..." search starts here:
+        #include <...> search starts here:
+         /Library/Developer/CommandLineTools/usr/lib/clang/17/include
+         /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/include
+         /Library/Developer/CommandLineTools/usr/include
+         /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/System/Library/Frameworks (framework directory)
+        End of search list.
+        /Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-CerIbg/OpenMPTryFlag.c:2:10: fatal error: 'omp.h' file not found
+            2 | #include <omp.h>
+              |          ^~~~~~~
+        1 error generated.
+        ninja: build stopped: subcommand failed.
+        
+      exitCode: 1
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/FindOpenMP.cmake:238 (try_compile)"
+      - "/Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/FindOpenMP.cmake:506 (_OPENMP_GET_FLAGS)"
+      - "CMakeLists.txt:6 (find_package)"
+    description: "Detecting CXX OpenMP compiler info"
+    directories:
+      source: "/Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-ZmotOV"
+      binary: "/Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-ZmotOV"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: " -O3 -march=native"
+      CMAKE_CXX_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_OSX_ARCHITECTURES: ""
+      CMAKE_OSX_DEPLOYMENT_TARGET: "15.3"
+      CMAKE_OSX_SYSROOT: "/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk"
+    buildResult:
+      variable: "OpenMP_COMPILE_RESULT_CXX_Xclang fopenmp"
+      cached: true
+      stdout: |
+        Change Dir: '/Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-ZmotOV'
+        
+        Run Build Command(s): /Applications/CLion.app/Contents/bin/ninja/mac/aarch64/ninja -v cmTC_d5d4d
+        [1/2] /Library/Developer/CommandLineTools/usr/bin/c++   -O3 -march=native -Xclang -fopenmp -v -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -MD -MT CMakeFiles/cmTC_d5d4d.dir/OpenMPTryFlag.cpp.o -MF CMakeFiles/cmTC_d5d4d.dir/OpenMPTryFlag.cpp.o.d -o CMakeFiles/cmTC_d5d4d.dir/OpenMPTryFlag.cpp.o -c /Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-ZmotOV/OpenMPTryFlag.cpp
+        FAILED: CMakeFiles/cmTC_d5d4d.dir/OpenMPTryFlag.cpp.o 
+        /Library/Developer/CommandLineTools/usr/bin/c++   -O3 -march=native -Xclang -fopenmp -v -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -MD -MT CMakeFiles/cmTC_d5d4d.dir/OpenMPTryFlag.cpp.o -MF CMakeFiles/cmTC_d5d4d.dir/OpenMPTryFlag.cpp.o.d -o CMakeFiles/cmTC_d5d4d.dir/OpenMPTryFlag.cpp.o -c /Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-ZmotOV/OpenMPTryFlag.cpp
+        Apple clang version 17.0.0 (clang-1700.0.13.5)
+        Target: arm64-apple-darwin24.3.0
+        Thread model: posix
+        InstalledDir: /Library/Developer/CommandLineTools/usr/bin
+        ignoring nonexistent directory "/Library/Developer/CommandLineTools/usr/bin/../include/c++/v1"
+         "/Library/Developer/CommandLineTools/usr/bin/clang" -cc1 -triple arm64-apple-macosx15.3.0 -Wundef-prefix=TARGET_OS_ -Wdeprecated-objc-isa-usage -Werror=deprecated-objc-isa-usage -Werror=implicit-function-declaration -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name OpenMPTryFlag.cpp -mrelocation-model pic -pic-level 2 -mframe-pointer=non-leaf -mllvm -extra-vectorizer-passes -fno-strict-return -ffp-contract=on -fno-rounding-math -funwind-tables=1 -fobjc-msgsend-selector-stubs -target-sdk-version=15.5 -fvisibility-inlines-hidden-static-local-var -fdefine-target-os-macros -fno-assume-unique-vtables -fno-modulemap-allow-subdirectory-search -target-cpu apple-m1 -target-feature +zcm -target-feature +zcz -target-feature +v8.6a -target-feature +bf16 -target-feature +bti -target-feature +ccidx -target-feature +complxnum -target-feature +crc -target-feature +dit -target-feature +dotprod -target-feature +flagm -target-feature +fp-armv8 -target-feature +i8mm -target-feature +jsconv -target-feature +lse -target-feature +neon -target-feature +pauth -target-feature +predres -target-feature +ras -target-feature +rcpc -target-feature +rdm -target-feature +sb -target-feature +ssbs -target-abi darwinpcs -debugger-tuning=lldb -fdebug-compilation-dir=/Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-ZmotOV -target-linker-version 1167.5 -v -fcoverage-compilation-dir=/Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-ZmotOV -resource-dir /Library/Developer/CommandLineTools/usr/lib/clang/17 -dependency-file CMakeFiles/cmTC_d5d4d.dir/OpenMPTryFlag.cpp.o.d -skip-unused-modulemap-deps -MT CMakeFiles/cmTC_d5d4d.dir/OpenMPTryFlag.cpp.o -sys-header-deps -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -internal-isystem /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/include/c++/v1 -internal-isystem /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/local/include -internal-isystem /Library/Developer/CommandLineTools/usr/lib/clang/17/include -internal-externc-isystem /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/include -internal-externc-isystem /Library/Developer/CommandLineTools/usr/include -O3 -Wno-reorder-init-list -Wno-implicit-int-float-conversion -Wno-c99-designator -Wno-final-dtor-non-final-class -Wno-extra-semi-stmt -Wno-misleading-indentation -Wno-quoted-include-in-framework-header -Wno-implicit-fallthrough -Wno-enum-enum-conversion -Wno-enum-float-conversion -Wno-elaborated-enum-base -Wno-reserved-identifier -Wno-gnu-folding-constant -std=gnu++20 -fdeprecated-macro -ferror-limit 19 -stack-protector 1 -fstack-check -mdarwin-stkchk-strong-link -fblocks -fencode-extended-block-signature -fregister-global-dtors-with-atexit -fgnuc-version=4.2.1 -fno-cxx-modules -fno-implicit-modules -fskip-odr-check-in-gmf -fcxx-exceptions -fexceptions -fmax-type-align=16 -fcommon -fcolor-diagnostics -vectorize-loops -vectorize-slp -fopenmp -clang-vendor-feature=+disableNonDependentMemberExprInCurrentInstantiation -fno-odr-hash-protocols -clang-vendor-feature=+enableAggressiveVLAFolding -clang-vendor-feature=+revert09abecef7bbf -clang-vendor-feature=+thisNoAlignAttr -clang-vendor-feature=+thisNoNullAttr -clang-vendor-feature=+disableAtImportPrivateFrameworkInImplementationError -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_d5d4d.dir/OpenMPTryFlag.cpp.o -x c++ /Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-ZmotOV/OpenMPTryFlag.cpp
+        clang -cc1 version 17.0.0 (clang-1700.0.13.5) default target arm64-apple-darwin24.3.0
+        ignoring nonexistent directory "/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/local/include"
+        ignoring nonexistent directory "/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/System/Library/SubFrameworks"
+        ignoring nonexistent directory "/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/Library/Frameworks"
+        #include "..." search starts here:
+        #include <...> search starts here:
+         /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/include/c++/v1
+         /Library/Developer/CommandLineTools/usr/lib/clang/17/include
+         /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/include
+         /Library/Developer/CommandLineTools/usr/include
+         /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/System/Library/Frameworks (framework directory)
+        End of search list.
+        /Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/CMakeScratch/TryCompile-ZmotOV/OpenMPTryFlag.cpp:2:10: fatal error: 'omp.h' file not found
+            2 | #include <omp.h>
+              |          ^~~~~~~
+        1 error generated.
+        ninja: build stopped: subcommand failed.
+        
+      exitCode: 1
+...

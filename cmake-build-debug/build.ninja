@@ -51,13 +51,15 @@ build cmake_object_order_depends_target_MatrixLibrary: phony || .
 
 build CMakeFiles/MatrixLibrary.dir/main.cpp.o: CXX_COMPILER__MatrixLibrary_unscanned_Debug /Users/ulassertankemec/CLionProjects/MatrixLibrary/main.cpp || cmake_object_order_depends_target_MatrixLibrary
   DEP_FILE = CMakeFiles/MatrixLibrary.dir/main.cpp.o.d
-  FLAGS = -O3 -march=native -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics
+  FLAGS = -O3 -march=native -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -Xpreprocessor -fopenmp
+  INCLUDES = -I/opt/homebrew/opt/libomp/include
   OBJECT_DIR = CMakeFiles/MatrixLibrary.dir
   OBJECT_FILE_DIR = CMakeFiles/MatrixLibrary.dir
 
 build CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o: CXX_COMPILER__MatrixLibrary_unscanned_Debug /Users/ulassertankemec/CLionProjects/MatrixLibrary/GEMMKernels.cpp || cmake_object_order_depends_target_MatrixLibrary
   DEP_FILE = CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o.d
-  FLAGS = -O3 -march=native -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics
+  FLAGS = -O3 -march=native -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -Xpreprocessor -fopenmp
+  INCLUDES = -I/opt/homebrew/opt/libomp/include
   OBJECT_DIR = CMakeFiles/MatrixLibrary.dir
   OBJECT_FILE_DIR = CMakeFiles/MatrixLibrary.dir
 
@@ -69,8 +71,9 @@ build CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o: CXX_COMPILER__MatrixLibrar
 #############################################
 # Link the executable MatrixLibrary
 
-build MatrixLibrary: CXX_EXECUTABLE_LINKER__MatrixLibrary_Debug CMakeFiles/MatrixLibrary.dir/main.cpp.o CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o
+build MatrixLibrary: CXX_EXECUTABLE_LINKER__MatrixLibrary_Debug CMakeFiles/MatrixLibrary.dir/main.cpp.o CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o | /opt/homebrew/opt/libomp/lib/libomp.dylib
   FLAGS = -O3 -march=native -g -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3
+  LINK_LIBRARIES = /opt/homebrew/opt/libomp/lib/libomp.dylib
   OBJECT_DIR = CMakeFiles/MatrixLibrary.dir
   POST_BUILD = :
   PRE_LINK = :
