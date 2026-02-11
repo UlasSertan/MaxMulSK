@@ -5,19 +5,17 @@
 		{
 			"compiler" : 
 			{
-				"id" : "AppleClang",
+				"id" : "Clang",
 				"implicit" : 
 				{
 					"includeDirectories" : 
 					[
-						"/Library/Developer/CommandLineTools/usr/lib/clang/17/include",
-						"/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/include",
-						"/Library/Developer/CommandLineTools/usr/include"
+						"/opt/homebrew/Cellar/llvm/21.1.8/lib/clang/21/include",
+						"/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/include"
 					],
 					"linkDirectories" : 
 					[
-						"/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/lib",
-						"/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/lib/swift"
+						"/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/lib"
 					],
 					"linkFrameworkDirectories" : 
 					[
@@ -25,8 +23,8 @@
 					],
 					"linkLibraries" : []
 				},
-				"path" : "/Library/Developer/CommandLineTools/usr/bin/cc",
-				"version" : "17.0.0.17000013"
+				"path" : "/opt/homebrew/opt/llvm/bin/clang",
+				"version" : "21.1.8"
 			},
 			"language" : "C",
 			"sourceFileExtensions" : 
@@ -38,20 +36,18 @@
 		{
 			"compiler" : 
 			{
-				"id" : "AppleClang",
+				"id" : "Clang",
 				"implicit" : 
 				{
 					"includeDirectories" : 
 					[
-						"/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/include/c++/v1",
-						"/Library/Developer/CommandLineTools/usr/lib/clang/17/include",
-						"/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/include",
-						"/Library/Developer/CommandLineTools/usr/include"
+						"/opt/homebrew/Cellar/llvm/21.1.8/include/c++/v1",
+						"/opt/homebrew/Cellar/llvm/21.1.8/lib/clang/21/include",
+						"/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/include"
 					],
 					"linkDirectories" : 
 					[
-						"/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/lib",
-						"/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/lib/swift"
+						"/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/usr/lib"
 					],
 					"linkFrameworkDirectories" : 
 					[
@@ -62,8 +58,8 @@
 						"c++"
 					]
 				},
-				"path" : "/Library/Developer/CommandLineTools/usr/bin/c++",
-				"version" : "17.0.0.17000013"
+				"path" : "/opt/homebrew/opt/llvm/bin/clang++",
+				"version" : "21.1.8"
 			},
 			"language" : "CXX",
 			"sourceFileExtensions" : 

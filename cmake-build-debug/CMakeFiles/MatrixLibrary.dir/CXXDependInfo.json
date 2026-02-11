@@ -1,0 +1,22 @@
+{
+	"bmi-installation" : null,
+	"compiler-frontend-variant" : "GNU",
+	"compiler-id" : "Clang",
+	"compiler-simulate-id" : "",
+	"config" : "Debug",
+	"cxx-modules" : {},
+	"dir-cur-bld" : "/Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug",
+	"dir-cur-src" : "/Users/ulassertankemec/CLionProjects/MatrixLibrary",
+	"dir-top-bld" : "/Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug",
+	"dir-top-src" : "/Users/ulassertankemec/CLionProjects/MatrixLibrary",
+	"exports" : [],
+	"forward-modules-from-target-dirs" : [],
+	"include-dirs" : 
+	[
+		"/opt/homebrew/opt/libomp/include",
+		"/Users/ulassertankemec/CLionProjects/MatrixLibrary"
+	],
+	"language" : "CXX",
+	"linked-target-dirs" : [],
+	"module-dir" : "/Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/MatrixLibrary.dir"
+}

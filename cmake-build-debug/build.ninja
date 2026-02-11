@@ -49,19 +49,92 @@ cmake_ninja_workdir = /Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-b
 
 build cmake_object_order_depends_target_MatrixLibrary: phony || .
 
-build CMakeFiles/MatrixLibrary.dir/main.cpp.o: CXX_COMPILER__MatrixLibrary_unscanned_Debug /Users/ulassertankemec/CLionProjects/MatrixLibrary/main.cpp || cmake_object_order_depends_target_MatrixLibrary
-  DEP_FILE = CMakeFiles/MatrixLibrary.dir/main.cpp.o.d
-  FLAGS = -O3 -march=native -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -Xpreprocessor -fopenmp
-  INCLUDES = -I/opt/homebrew/opt/libomp/include
-  OBJECT_DIR = CMakeFiles/MatrixLibrary.dir
-  OBJECT_FILE_DIR = CMakeFiles/MatrixLibrary.dir
+build CMakeFiles/MatrixLibrary.dir/main.cpp.o.ddi: CXX_SCAN__MatrixLibrary_Debug /Users/ulassertankemec/CLionProjects/MatrixLibrary/main.cpp || cmake_object_order_depends_target_MatrixLibrary
+  DEP_FILE = CMakeFiles/MatrixLibrary.dir/main.cpp.o.ddi.d
+  DYNDEP_INTERMEDIATE_FILE = CMakeFiles/MatrixLibrary.dir/main.cpp.o.ddi
+  FLAGS = -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -O3 -Wall -Wextra -mcpu=apple-m4
+  INCLUDES = -I/opt/homebrew/opt/libomp/include -I/Users/ulassertankemec/CLionProjects/MatrixLibrary
+  OBJ_FILE = CMakeFiles/MatrixLibrary.dir/main.cpp.o
+  PREPROCESSED_OUTPUT_FILE = CMakeFiles/MatrixLibrary.dir/main.cpp.o.ddi.i
 
-build CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o: CXX_COMPILER__MatrixLibrary_unscanned_Debug /Users/ulassertankemec/CLionProjects/MatrixLibrary/GEMMKernels.cpp || cmake_object_order_depends_target_MatrixLibrary
-  DEP_FILE = CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o.d
-  FLAGS = -O3 -march=native -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -Xpreprocessor -fopenmp
-  INCLUDES = -I/opt/homebrew/opt/libomp/include
+build CMakeFiles/MatrixLibrary.dir/main.cpp.o: CXX_COMPILER__MatrixLibrary_scanned_Debug /Users/ulassertankemec/CLionProjects/MatrixLibrary/main.cpp | CMakeFiles/MatrixLibrary.dir/main.cpp.o.modmap || cmake_object_order_depends_target_MatrixLibrary CMakeFiles/MatrixLibrary.dir/CXX.dd
+  DEP_FILE = CMakeFiles/MatrixLibrary.dir/main.cpp.o.d
+  DYNDEP_MODULE_MAP_FILE = CMakeFiles/MatrixLibrary.dir/main.cpp.o.modmap
+  FLAGS = -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -O3 -Wall -Wextra -mcpu=apple-m4
+  INCLUDES = -I/opt/homebrew/opt/libomp/include -I/Users/ulassertankemec/CLionProjects/MatrixLibrary
   OBJECT_DIR = CMakeFiles/MatrixLibrary.dir
   OBJECT_FILE_DIR = CMakeFiles/MatrixLibrary.dir
+  dyndep = CMakeFiles/MatrixLibrary.dir/CXX.dd
+
+build CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o.ddi: CXX_SCAN__MatrixLibrary_Debug /Users/ulassertankemec/CLionProjects/MatrixLibrary/GEMMKernels.cpp || cmake_object_order_depends_target_MatrixLibrary
+  DEP_FILE = CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o.ddi.d
+  DYNDEP_INTERMEDIATE_FILE = CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o.ddi
+  FLAGS = -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -O3 -Wall -Wextra -mcpu=apple-m4 -march=armv8.4-a
+  INCLUDES = -I/opt/homebrew/opt/libomp/include -I/Users/ulassertankemec/CLionProjects/MatrixLibrary
+  OBJ_FILE = CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o
+  PREPROCESSED_OUTPUT_FILE = CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o.ddi.i
+
+build CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o: CXX_COMPILER__MatrixLibrary_scanned_Debug /Users/ulassertankemec/CLionProjects/MatrixLibrary/GEMMKernels.cpp | CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o.modmap || cmake_object_order_depends_target_MatrixLibrary CMakeFiles/MatrixLibrary.dir/CXX.dd
+  DEP_FILE = CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o.d
+  DYNDEP_MODULE_MAP_FILE = CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o.modmap
+  FLAGS = -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -O3 -Wall -Wextra -mcpu=apple-m4 -march=armv8.4-a
+  INCLUDES = -I/opt/homebrew/opt/libomp/include -I/Users/ulassertankemec/CLionProjects/MatrixLibrary
+  OBJECT_DIR = CMakeFiles/MatrixLibrary.dir
+  OBJECT_FILE_DIR = CMakeFiles/MatrixLibrary.dir
+  dyndep = CMakeFiles/MatrixLibrary.dir/CXX.dd
+
+build CMakeFiles/MatrixLibrary.dir/SME-GEMMKernels.cpp.o.ddi: CXX_SCAN__MatrixLibrary_Debug /Users/ulassertankemec/CLionProjects/MatrixLibrary/SME-GEMMKernels.cpp || cmake_object_order_depends_target_MatrixLibrary
+  DEP_FILE = CMakeFiles/MatrixLibrary.dir/SME-GEMMKernels.cpp.o.ddi.d
+  DYNDEP_INTERMEDIATE_FILE = CMakeFiles/MatrixLibrary.dir/SME-GEMMKernels.cpp.o.ddi
+  FLAGS = -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -O3 -Wall -Wextra -mcpu=apple-m4 -march=armv8.7-a+sme+sme2
+  INCLUDES = -I/opt/homebrew/opt/libomp/include -I/Users/ulassertankemec/CLionProjects/MatrixLibrary
+  OBJ_FILE = CMakeFiles/MatrixLibrary.dir/SME-GEMMKernels.cpp.o
+  PREPROCESSED_OUTPUT_FILE = CMakeFiles/MatrixLibrary.dir/SME-GEMMKernels.cpp.o.ddi.i
+
+build CMakeFiles/MatrixLibrary.dir/SME-GEMMKernels.cpp.o: CXX_COMPILER__MatrixLibrary_scanned_Debug /Users/ulassertankemec/CLionProjects/MatrixLibrary/SME-GEMMKernels.cpp | CMakeFiles/MatrixLibrary.dir/SME-GEMMKernels.cpp.o.modmap || cmake_object_order_depends_target_MatrixLibrary CMakeFiles/MatrixLibrary.dir/CXX.dd
+  DEP_FILE = CMakeFiles/MatrixLibrary.dir/SME-GEMMKernels.cpp.o.d
+  DYNDEP_MODULE_MAP_FILE = CMakeFiles/MatrixLibrary.dir/SME-GEMMKernels.cpp.o.modmap
+  FLAGS = -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -O3 -Wall -Wextra -mcpu=apple-m4 -march=armv8.7-a+sme+sme2
+  INCLUDES = -I/opt/homebrew/opt/libomp/include -I/Users/ulassertankemec/CLionProjects/MatrixLibrary
+  OBJECT_DIR = CMakeFiles/MatrixLibrary.dir
+  OBJECT_FILE_DIR = CMakeFiles/MatrixLibrary.dir
+  dyndep = CMakeFiles/MatrixLibrary.dir/CXX.dd
+
+build CMakeFiles/MatrixLibrary.dir/SME-GEMMKernelsTest.cpp.o.ddi: CXX_SCAN__MatrixLibrary_Debug /Users/ulassertankemec/CLionProjects/MatrixLibrary/SME-GEMMKernelsTest.cpp || cmake_object_order_depends_target_MatrixLibrary
+  DEP_FILE = CMakeFiles/MatrixLibrary.dir/SME-GEMMKernelsTest.cpp.o.ddi.d
+  DYNDEP_INTERMEDIATE_FILE = CMakeFiles/MatrixLibrary.dir/SME-GEMMKernelsTest.cpp.o.ddi
+  FLAGS = -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -O3 -Wall -Wextra -mcpu=apple-m4
+  INCLUDES = -I/opt/homebrew/opt/libomp/include -I/Users/ulassertankemec/CLionProjects/MatrixLibrary
+  OBJ_FILE = CMakeFiles/MatrixLibrary.dir/SME-GEMMKernelsTest.cpp.o
+  PREPROCESSED_OUTPUT_FILE = CMakeFiles/MatrixLibrary.dir/SME-GEMMKernelsTest.cpp.o.ddi.i
+
+build CMakeFiles/MatrixLibrary.dir/SME-GEMMKernelsTest.cpp.o: CXX_COMPILER__MatrixLibrary_scanned_Debug /Users/ulassertankemec/CLionProjects/MatrixLibrary/SME-GEMMKernelsTest.cpp | CMakeFiles/MatrixLibrary.dir/SME-GEMMKernelsTest.cpp.o.modmap || cmake_object_order_depends_target_MatrixLibrary CMakeFiles/MatrixLibrary.dir/CXX.dd
+  DEP_FILE = CMakeFiles/MatrixLibrary.dir/SME-GEMMKernelsTest.cpp.o.d
+  DYNDEP_MODULE_MAP_FILE = CMakeFiles/MatrixLibrary.dir/SME-GEMMKernelsTest.cpp.o.modmap
+  FLAGS = -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -O3 -Wall -Wextra -mcpu=apple-m4
+  INCLUDES = -I/opt/homebrew/opt/libomp/include -I/Users/ulassertankemec/CLionProjects/MatrixLibrary
+  OBJECT_DIR = CMakeFiles/MatrixLibrary.dir
+  OBJECT_FILE_DIR = CMakeFiles/MatrixLibrary.dir
+  dyndep = CMakeFiles/MatrixLibrary.dir/CXX.dd
+
+build CMakeFiles/MatrixLibrary.dir/test_packing.cpp.o.ddi: CXX_SCAN__MatrixLibrary_Debug /Users/ulassertankemec/CLionProjects/MatrixLibrary/test_packing.cpp || cmake_object_order_depends_target_MatrixLibrary
+  DEP_FILE = CMakeFiles/MatrixLibrary.dir/test_packing.cpp.o.ddi.d
+  DYNDEP_INTERMEDIATE_FILE = CMakeFiles/MatrixLibrary.dir/test_packing.cpp.o.ddi
+  FLAGS = -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -O3 -Wall -Wextra -mcpu=apple-m4
+  INCLUDES = -I/opt/homebrew/opt/libomp/include -I/Users/ulassertankemec/CLionProjects/MatrixLibrary
+  OBJ_FILE = CMakeFiles/MatrixLibrary.dir/test_packing.cpp.o
+  PREPROCESSED_OUTPUT_FILE = CMakeFiles/MatrixLibrary.dir/test_packing.cpp.o.ddi.i
+
+build CMakeFiles/MatrixLibrary.dir/test_packing.cpp.o: CXX_COMPILER__MatrixLibrary_scanned_Debug /Users/ulassertankemec/CLionProjects/MatrixLibrary/test_packing.cpp | CMakeFiles/MatrixLibrary.dir/test_packing.cpp.o.modmap || cmake_object_order_depends_target_MatrixLibrary CMakeFiles/MatrixLibrary.dir/CXX.dd
+  DEP_FILE = CMakeFiles/MatrixLibrary.dir/test_packing.cpp.o.d
+  DYNDEP_MODULE_MAP_FILE = CMakeFiles/MatrixLibrary.dir/test_packing.cpp.o.modmap
+  FLAGS = -g -std=gnu++20 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3 -fcolor-diagnostics -O3 -Wall -Wextra -mcpu=apple-m4
+  INCLUDES = -I/opt/homebrew/opt/libomp/include -I/Users/ulassertankemec/CLionProjects/MatrixLibrary
+  OBJECT_DIR = CMakeFiles/MatrixLibrary.dir
+  OBJECT_FILE_DIR = CMakeFiles/MatrixLibrary.dir
+  dyndep = CMakeFiles/MatrixLibrary.dir/CXX.dd
+
+build CMakeFiles/MatrixLibrary.dir/CXX.dd | /Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/MatrixLibrary.dir/CXXModules.json CMakeFiles/MatrixLibrary.dir/main.cpp.o.modmap CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o.modmap CMakeFiles/MatrixLibrary.dir/SME-GEMMKernels.cpp.o.modmap CMakeFiles/MatrixLibrary.dir/SME-GEMMKernelsTest.cpp.o.modmap CMakeFiles/MatrixLibrary.dir/test_packing.cpp.o.modmap: CXX_DYNDEP__MatrixLibrary_Debug CMakeFiles/MatrixLibrary.dir/main.cpp.o.ddi CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o.ddi CMakeFiles/MatrixLibrary.dir/SME-GEMMKernels.cpp.o.ddi CMakeFiles/MatrixLibrary.dir/SME-GEMMKernelsTest.cpp.o.ddi CMakeFiles/MatrixLibrary.dir/test_packing.cpp.o.ddi | /Users/ulassertankemec/CLionProjects/MatrixLibrary/cmake-build-debug/CMakeFiles/MatrixLibrary.dir/CXXDependInfo.json
 
 
 # =============================================================================
@@ -71,8 +144,8 @@ build CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o: CXX_COMPILER__MatrixLibrar
 #############################################
 # Link the executable MatrixLibrary
 
-build MatrixLibrary: CXX_EXECUTABLE_LINKER__MatrixLibrary_Debug CMakeFiles/MatrixLibrary.dir/main.cpp.o CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o | /opt/homebrew/opt/libomp/lib/libomp.dylib
-  FLAGS = -O3 -march=native -g -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3
+build MatrixLibrary: CXX_EXECUTABLE_LINKER__MatrixLibrary_Debug CMakeFiles/MatrixLibrary.dir/main.cpp.o CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o CMakeFiles/MatrixLibrary.dir/SME-GEMMKernels.cpp.o CMakeFiles/MatrixLibrary.dir/SME-GEMMKernelsTest.cpp.o CMakeFiles/MatrixLibrary.dir/test_packing.cpp.o | /opt/homebrew/opt/libomp/lib/libomp.dylib
+  FLAGS = -g -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -mmacosx-version-min=15.3
   LINK_LIBRARIES = /opt/homebrew/opt/libomp/lib/libomp.dylib
   OBJECT_DIR = CMakeFiles/MatrixLibrary.dir
   POST_BUILD = :
@@ -123,14 +196,14 @@ build all: phony MatrixLibrary
 #############################################
 # Re-run CMake if any of its inputs changed.
 
-build build.ninja: RERUN_CMAKE | /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeCInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeCXXInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeCommonLanguageInclude.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeGenericSystem.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeInitializeConfigs.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeLanguageInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeSystemSpecificInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeSystemSpecificInitialize.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/AppleClang-C.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/AppleClang-CXX.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/CMakeCommonCompilerMacros.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/Clang.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/GNU.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-AppleClang-C.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-AppleClang-CXX.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-Clang-C.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-Clang-CXX.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-Clang.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Darwin-Initialize.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Darwin.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/UnixPaths.cmake /Users/ulassertankemec/CLionProjects/MatrixLibrary/CMakeLists.txt CMakeCache.txt CMakeFiles/3.30.5/CMakeCCompiler.cmake CMakeFiles/3.30.5/CMakeCXXCompiler.cmake CMakeFiles/3.30.5/CMakeSystem.cmake
+build build.ninja: RERUN_CMAKE | /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeCInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeCXXInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeCommonLanguageInclude.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeGenericSystem.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeInitializeConfigs.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeLanguageInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeSystemSpecificInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeSystemSpecificInitialize.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/CMakeCommonCompilerMacros.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/Clang-C.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/Clang-CXX.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/Clang.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/GNU.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-Clang-C.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-Clang-CXX.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-Clang.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Darwin-Initialize.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Darwin.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/UnixPaths.cmake /Users/ulassertankemec/CLionProjects/MatrixLibrary/CMakeLists.txt CMakeCache.txt CMakeFiles/3.30.5/CMakeCCompiler.cmake CMakeFiles/3.30.5/CMakeCXXCompiler.cmake CMakeFiles/3.30.5/CMakeSystem.cmake
   pool = console
 
 
 #############################################
 # A missing CMake input file is not an error.
 
-build /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeCInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeCXXInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeCommonLanguageInclude.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeGenericSystem.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeInitializeConfigs.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeLanguageInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeSystemSpecificInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeSystemSpecificInitialize.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/AppleClang-C.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/AppleClang-CXX.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/CMakeCommonCompilerMacros.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/Clang.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/GNU.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-AppleClang-C.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-AppleClang-CXX.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-Clang-C.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-Clang-CXX.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-Clang.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Darwin-Initialize.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Darwin.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/UnixPaths.cmake /Users/ulassertankemec/CLionProjects/MatrixLibrary/CMakeLists.txt CMakeCache.txt CMakeFiles/3.30.5/CMakeCCompiler.cmake CMakeFiles/3.30.5/CMakeCXXCompiler.cmake CMakeFiles/3.30.5/CMakeSystem.cmake: phony
+build /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeCInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeCXXInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeCommonLanguageInclude.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeGenericSystem.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeInitializeConfigs.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeLanguageInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeSystemSpecificInformation.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/CMakeSystemSpecificInitialize.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/CMakeCommonCompilerMacros.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/Clang-C.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/Clang-CXX.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/Clang.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Compiler/GNU.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-Clang-C.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-Clang-CXX.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Apple-Clang.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Darwin-Initialize.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/Darwin.cmake /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.30/Modules/Platform/UnixPaths.cmake /Users/ulassertankemec/CLionProjects/MatrixLibrary/CMakeLists.txt CMakeCache.txt CMakeFiles/3.30.5/CMakeCCompiler.cmake CMakeFiles/3.30.5/CMakeCXXCompiler.cmake CMakeFiles/3.30.5/CMakeSystem.cmake: phony
 
 
 #############################################
