@@ -8,7 +8,7 @@ Explores and benchmarks three levels of compute on ARM:
 |--------|-----|----------|--------|
 | Scalar | — | Naive triple-loop reference | ~2 |
 | NEON | ARMv8.4 | 8×12 micro-kernel, 4× K-unroll, in-register transpose | ~120 |
-| NEON + OpenMP | ARMv8.4 | Above + 8-thread parallelism | ~456 |
+| NEON + OpenMP | ARMv8.4 | Above + multi-thread, dynamic scheduling | ~539 |
 | SME | ARMv8.7 + SME/SME2 | 4×SVL outer-product micro-kernel using ZA accumulator tiles | WIP |
 
 Both optimized kernels use cache-blocking (Mc=64, Kc=256) and pack A/B into contiguous, kernel-friendly layouts before computing. Arbitrary matrix dimensions are handled correctly: non-aligned M/K/N fall back to scalar for the tail regions with zero impact on the aligned hot path. See [BENCHMARKS.md](BENCHMARKS.md) for full experimental results including power/energy analysis, cache behavior, instruction profiling, and micro-kernel tuning experiments.
@@ -70,6 +70,7 @@ Running the binary executes unit tests for both kernels, followed by a single ti
 
 ## Roadmap
 
-- [ ] Edge-case handling for NEON (non-divisible M/K/N)
+- [x] Edge-case handling for NEON (non-divisible M/K/N)
+- [x] OpenMP parallelism with correct thread structure and dynamic scheduling
 - [ ] Complete SME tail handling and validation
-- [ ] Rust scheduling layer for work distribution
+- [ ] Rust scheduling layer for heterogeneous work distribution (P-core vs E-core)
