@@ -11,7 +11,7 @@ Explores and benchmarks three levels of compute on ARM:
 | NEON + OpenMP | ARMv8.4 | Above + 8-thread parallelism | ~456 |
 | SME | ARMv8.7 + SME/SME2 | 4×SVL outer-product micro-kernel using ZA accumulator tiles | WIP |
 
-Both optimized kernels use cache-blocking (Mc=64, Kc=256) and pack A/B into contiguous, kernel-friendly layouts before computing. See [BENCHMARKS.md](BENCHMARKS.md) for full experimental results including power/energy analysis, cache behavior, instruction profiling, and micro-kernel tuning experiments.
+Both optimized kernels use cache-blocking (Mc=64, Kc=256) and pack A/B into contiguous, kernel-friendly layouts before computing. Arbitrary matrix dimensions are handled correctly: non-aligned M/K/N fall back to scalar for the tail regions with zero impact on the aligned hot path. See [BENCHMARKS.md](BENCHMARKS.md) for full experimental results including power/energy analysis, cache behavior, instruction profiling, and micro-kernel tuning experiments.
 
 ## Structure
 

@@ -7,72 +7,187 @@
 #include "common/utils.hpp"
 #include "neon/GEMMKernels.hpp"
 #include "neon/test_neon.hpp"
-#include "sme/SME-GEMMKernels.hpp"
-#include "sme/test_sme.hpp"
+// #include "sme/SME-GEMMKernels.hpp"  -- re-enable after NEON is complete
+
+using Clock = std::chrono::high_resolution_clock;
+using Ms    = std::chrono::duration<double, std::milli>;
 
 // =============================================================================
-// BENCHMARK
+// HELPERS
+// =============================================================================
+namespace {
+
+    // Run NEON kernel N times, return average ms (includes one warmup run)
+    double bench_neon(const float* A, const float* B, float* C,
+                      size_t M, size_t N, size_t K, int iters) {
+        GEMM::package(A, B, C, M, N, K); // warmup
+        auto t0 = Clock::now();
+        for (int i = 0; i < iters; ++i)
+            GEMM::package(A, B, C, M, N, K);
+        return Ms(Clock::now() - t0).count() / iters;
+    }
+
+    // Pick iteration count so each size runs for a stable duration
+    int iters_for(size_t N) {
+        if (N <=   32) return 50000;
+        if (N <=  128) return 5000;
+        if (N <=  256) return 500;
+        if (N <=  512) return 50;
+        return 10;
+    }
+
+    void print_row(const std::string& label, size_t M, size_t N, size_t K,
+                   double ms, bool correct, bool show_correct) {
+        double gflops = Utils::compute_gflops(M, N, K, ms);
+        std::cout << std::left  << std::setw(28) << label
+                  << std::right << std::setw(8)  << std::fixed << std::setprecision(2) << ms     << " ms"
+                  << std::setw(10) << std::setprecision(1) << gflops << " GFLOPS";
+        if (show_correct)
+            std::cout << "  " << (correct ? "PASS" : "FAIL");
+        std::cout << "\n";
+    }
+
+} // namespace
+
+// =============================================================================
+// BENCHMARK NAMESPACE
 // =============================================================================
 namespace Benchmark {
 
-    void run_single(const float* A, const float* B,
-                    float* C_neon, float* C_sme,
-                    size_t M, size_t N, size_t K) {
-        std::cout << "\n--- Single Run (correctness + timing) ---\n";
+    // -------------------------------------------------------------------------
+    // 1. Large correctness test — 1067x1067x1067 (forces all three tails:
+    //    M%8=3, N%12=11, K%4=3)
+    // -------------------------------------------------------------------------
+    void neon_correctness_large() {
+        constexpr size_t M = 1067, N = 1067, K = 1067;
+
+        std::cout << "\n========================================\n";
+        std::cout << "  NEON Correctness — " << M << "x" << N << "x" << K << "\n";
+        std::cout << "  (M%8=" << M%8 << "  N%12=" << N%12 << "  K%4=" << K%4 << ")\n";
+        std::cout << "========================================\n";
+
+        std::vector<float> A(M * K), B(K * N);
+        std::vector<float> C_ref(M * N, 0.0f), C_neon(M * N, 0.0f);
+        Utils::fill_random(A);
+        Utils::fill_random(B);
 
         // Scalar reference
-        std::vector<float> C_ref(M * N, 0.0f);
-        auto t0 = std::chrono::high_resolution_clock::now();
-        Utils::multiply_scalar(A, B, C_ref.data(), M, N, K);
-        auto t1 = std::chrono::high_resolution_clock::now();
-        double dt_scalar = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        auto t0 = Clock::now();
+        Utils::multiply_scalar(A.data(), B.data(), C_ref.data(), M, N, K);
+        double dt_scalar = Ms(Clock::now() - t0).count();
 
         // NEON
-        std::fill(C_neon, C_neon + M * N, 0.0f);
-        auto t2 = std::chrono::high_resolution_clock::now();
-        GEMM::package(A, B, C_neon, M, N, K);
-        auto t3 = std::chrono::high_resolution_clock::now();
-        double dt_neon = std::chrono::duration<double, std::milli>(t3 - t2).count();
+        auto t1 = Clock::now();
+        GEMM::package(A.data(), B.data(), C_neon.data(), M, N, K);
+        double dt_neon = Ms(Clock::now() - t1).count();
 
-        // SME
-        std::fill(C_sme, C_sme + M * N, 0.0f);
-        auto t4 = std::chrono::high_resolution_clock::now();
-        SMEKernels::run_multiplication(A, B, C_sme, M, K, N);
-        auto t5 = std::chrono::high_resolution_clock::now();
-        double dt_sme = std::chrono::duration<double, std::milli>(t5 - t4).count();
+        bool ok = Utils::check_correctness(C_ref.data(), C_neon.data(), M * N, "NEON");
+
+        std::cout << std::fixed << std::setprecision(2);
+        std::cout << "  Scalar : " << dt_scalar << " ms\n";
+        std::cout << "  NEON   : " << dt_neon   << " ms  "
+                  << Utils::compute_gflops(M, N, K, dt_neon) << " GFLOPS\n";
+        std::cout << "  Result : " << (ok ? "PASS" : "FAIL") << "\n";
+    }
+
+    // -------------------------------------------------------------------------
+    // 2. GFLOPS sweep — aligned sizes + edge-case sizes
+    // -------------------------------------------------------------------------
+    void neon_speed_sweep() {
+        std::cout << "\n========================================\n";
+        std::cout << "  NEON Speed Sweep\n";
+        std::cout << "========================================\n";
+
+        struct Case {
+            size_t M, N, K;
+            const char* label;
+        };
+
+        // Aligned: all tails are zero, measures pure NEON throughput
+        // Edge:    deliberately chosen to force each tail combination
+        const Case cases[] = {
+            // --- Aligned ---
+            {   4,   4,   4, "4^3         [tiny / scalar]"    },
+            {  16,  16,  16, "16^3        [aligned]"          },
+            {  64,  64,  64, "64^3        [aligned]"          },
+            { 128, 128, 128, "128^3       [aligned]"          },
+            { 256, 256, 256, "256^3       [aligned]"          },
+            { 512, 512, 512, "512^3       [aligned]"          },
+            {1024,1024,1024, "1024^3      [aligned]"          },
+            {1024,1020,1024, "1024x1020x1024 [pre-edge baseline]"},
+            // --- Edge: M tail only (M%8 != 0) ---
+            {  65,  64,  64, "65x64x64    [M tail]"           },
+            { 513, 512, 512, "513x512x512 [M tail]"           },
+            // --- Edge: N tail only (N%12 != 0) ---
+            {  64,  65,  64, "64x65x64    [N tail]"           },
+            { 512, 509, 512, "512x509x512 [N tail]"           },
+            // --- Edge: K tail only (K%4 != 0) ---
+            {  64,  64,  65, "64x64x65    [K tail]"           },
+            { 512, 512, 513, "512x512x513 [K tail]"           },
+            // --- Edge: all tails ---
+            {  67,  67,  67, "67^3        [all tails]"        },
+            { 513, 509, 513, "513x509x513 [all tails]"        },
+        };
+
+        // Header
+        std::cout << std::left  << std::setw(28) << "  Size"
+                  << std::right << std::setw(10) << "Time"
+                  << std::setw(14) << "GFLOPS" << "\n";
+        std::cout << "  " << std::string(52, '-') << "\n";
+
+        for (auto& c : cases) {
+            const int iters = iters_for(std::max({c.M, c.N, c.K}));
+
+            std::vector<float> A(c.M * c.K), B(c.K * c.N), Cout(c.M * c.N);
+            Utils::fill_random(A);
+            Utils::fill_random(B);
+
+            double ms = bench_neon(A.data(), B.data(), Cout.data(), c.M, c.N, c.K, iters);
+            print_row(std::string("  ") + c.label, c.M, c.N, c.K, ms, true, false);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // 3. Single run: Scalar vs NEON at a given size
+    // -------------------------------------------------------------------------
+    void run_single(const float* A, const float* B, float* C_neon,
+                    size_t M, size_t N, size_t K) {
+        std::cout << "\n========================================\n";
+        std::cout << "  Single Run — " << M << "x" << N << "x" << K << "\n";
+        std::cout << "========================================\n";
+
+        std::vector<float> C_ref(M * N, 0.0f);
+        auto t0 = Clock::now();
+        Utils::multiply_scalar(A, B, C_ref.data(), M, N, K);
+        double dt_scalar = Ms(Clock::now() - t0).count();
+
+        std::fill(C_neon, C_neon + M * N, 0.0f);
+        auto t1 = Clock::now();
+        GEMM::package(A, B, C_neon, M, N, K);
+        double dt_neon = Ms(Clock::now() - t1).count();
 
         std::cout << std::fixed << std::setprecision(2);
         std::cout << "  Scalar : " << dt_scalar << " ms | "
                   << Utils::compute_gflops(M, N, K, dt_scalar) << " GFLOPS\n";
-        std::cout << "  NEON   : " << dt_neon   << " ms | "
-                  << Utils::compute_gflops(M, N, K, dt_neon)   << " GFLOPS"
-                  << " | " << dt_scalar / dt_neon  << "x\n";
-        std::cout << "  SME    : " << dt_sme    << " ms | "
-                  << Utils::compute_gflops(M, N, K, dt_sme)    << " GFLOPS"
-                  << " | " << dt_scalar / dt_sme   << "x\n";
+        std::cout << "  NEON   : " << dt_neon << " ms | "
+                  << Utils::compute_gflops(M, N, K, dt_neon) << " GFLOPS"
+                  << " | " << dt_scalar / dt_neon << "x\n";
 
-        bool neon_ok = Utils::check_correctness(C_ref.data(), C_neon, M * N, "NEON");
-        bool sme_ok  = Utils::check_correctness(C_ref.data(), C_sme,  M * N, "SME");
-        std::cout << "  Correctness: NEON=" << (neon_ok ? "OK" : "FAIL")
-                  << "  SME=" << (sme_ok ? "OK" : "FAIL") << "\n";
+        bool ok = Utils::check_correctness(C_ref.data(), C_neon, M * N, "NEON");
+        std::cout << "  Correctness: " << (ok ? "OK" : "FAIL") << "\n";
     }
 
     void run_stress(int iterations, const float* A, const float* B, float* C,
-                    size_t M, size_t N, size_t K, const std::string& label) {
-        // Warmup
-        if (label == "NEON") GEMM::package(A, B, C, M, N, K);
-        else                  SMEKernels::run_multiplication(A, B, C, M, K, N);
+                    size_t M, size_t N, size_t K) {
+        GEMM::package(A, B, C, M, N, K); // warmup
 
-        auto start = std::chrono::high_resolution_clock::now();
-        for (int i = 0; i < iterations; ++i) {
-            if (label == "NEON") GEMM::package(A, B, C, M, N, K);
-            else                  SMEKernels::run_multiplication(A, B, C, M, K, N);
-        }
-        auto end = std::chrono::high_resolution_clock::now();
-
-        double avg_ms = std::chrono::duration<double, std::milli>(end - start).count() / iterations;
-        std::cout << "  [" << label << " x" << iterations << "]  avg=" << avg_ms << " ms"
-                  << "  " << Utils::compute_gflops(M, N, K, avg_ms) << " GFLOPS\n";
+        auto start = Clock::now();
+        for (int i = 0; i < iterations; ++i)
+            GEMM::package(A, B, C, M, N, K);
+        double avg_ms = Ms(Clock::now() - start).count() / iterations;
+        std::cout << "  [NEON x" << iterations << "]  avg="
+                  << std::fixed << std::setprecision(2) << avg_ms << " ms  "
+                  << std::setprecision(1) << Utils::compute_gflops(M, N, K, avg_ms) << " GFLOPS\n";
     }
 
 } // namespace Benchmark
@@ -83,30 +198,32 @@ namespace Benchmark {
 int main() {
     omp_set_num_threads(1);
 
-    const size_t M = 1024;
-    const size_t N = 1020; // multiple of 12 (NEON tile width)
-    const size_t K = 1024;
-
     std::cout << "========================================\n";
-    std::cout << "  GEMM Benchmark — Scalar / NEON / SME\n";
+    std::cout << "  GEMM — Scalar / NEON / SME\n";
+    std::cout << "  Single thread\n";
     std::cout << "========================================\n";
-    std::cout << "M=" << M << "  N=" << N << "  K=" << K << "  threads=1\n";
-
-    std::vector<float> A(M * K), B(K * N);
-    std::vector<float> C_neon(M * N), C_sme(M * N);
-    Utils::fill_random(A);
-    Utils::fill_random(B);
 
     // --- Unit tests ---
     NEONTest::run();
-    SMETest::run();
 
-    // --- Benchmark ---
-    Benchmark::run_single(A.data(), B.data(), C_neon.data(), C_sme.data(), M, N, K);
+    // --- NEON: large correctness ---
+    Benchmark::neon_correctness_large();
 
-    std::cout << "\n--- Stress Tests (50 iterations) ---\n";
-    Benchmark::run_stress(50, A.data(), B.data(), C_neon.data(), M, N, K, "NEON");
-    Benchmark::run_stress(50, A.data(), B.data(), C_sme.data(),  M, N, K, "SME");
+    // --- NEON: speed sweep ---
+    Benchmark::neon_speed_sweep();
+
+    // --- Single run at 1024^3 ---
+    constexpr size_t M = 1024, N = 1024, K = 1024;
+    std::vector<float> A(M * K), B(K * N), C_neon(M * N);
+    Utils::fill_random(A);
+    Utils::fill_random(B);
+
+    Benchmark::run_single(A.data(), B.data(), C_neon.data(), M, N, K);
+
+    std::cout << "\n========================================\n";
+    std::cout << "  Stress Test (50 iterations, 1024^3)\n";
+    std::cout << "========================================\n";
+    Benchmark::run_stress(50, A.data(), B.data(), C_neon.data(), M, N, K);
 
     return 0;
 }

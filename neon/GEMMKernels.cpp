@@ -3,6 +3,7 @@
 #include <arm_neon.h>
 #include <cstddef>
 #include <memory>
+#include <vector>
 #include <algorithm>
 #include <omp.h>
 
@@ -278,9 +279,18 @@ namespace GEMM {
     void pack_A_block(const float* src, float* pack_A, size_t Mc, size_t Kc, size_t K) {
         float* write_ptr = pack_A;
         for (size_t i = 0; i < Mc; i += 8) {
-            for (size_t k = 0; k < Kc; k += 4) {
-                transpose_8x4(src + i * K + k, write_ptr, K);
+            const float* row_base = src + i * K;
+            size_t k = 0;
+            for (; k + 4 <= Kc; k += 4) {
+                transpose_8x4(row_base + k, write_ptr, K);
                 write_ptr += 32;
+            }
+            // K tail: 1-3 remaining columns, scalar — same layout as transpose_8x4 output
+            // (8 consecutive floats per k step) so the micro-kernel scalar tail reads correctly
+            for (; k < Kc; k++) {
+                for (size_t r = 0; r < 8; r++)
+                    write_ptr[r] = row_base[k + r * K];
+                write_ptr += 8;
             }
         }
     }
@@ -319,34 +329,105 @@ namespace GEMM {
     struct FreeDeleter { void operator()(void* p) { std::free(p); } };
     using AlignedBuffer = std::unique_ptr<float[], FreeDeleter>;
 
+    // ikj loop order: cache-friendly B reads, used for tail regions
+    static void scalar_block(const float* A, const float* B, float* C,
+                              size_t M, size_t N, size_t K,
+                              size_t lda, size_t ldb, size_t ldc) {
+        for (size_t i = 0; i < M; i++)
+            for (size_t k = 0; k < K; k++) {
+                float a = A[i * lda + k];
+                for (size_t j = 0; j < N; j++)
+                    C[i * ldc + j] += a * B[k * ldb + j];
+            }
+    }
+
     void package(const float* A, const float* B, float* C,
                  size_t M, size_t N, size_t K) {
-        constexpr size_t Kc = 256;
-        constexpr size_t Mc = 64;
-        constexpr size_t Nc = 1020; // must be multiple of 12
-        constexpr size_t Nc_aligned = ((Nc + 11) / 12) * 12;
+        constexpr size_t Kc       = 256;
+        constexpr size_t Mc       = 64;
+        constexpr size_t Nc_cache = 1020; // cache tile width, must be multiple of 12
+
+        const size_t M_aligned = (M / 8)  * 8;
+        const size_t N_aligned = (N / 12) * 12;
+        const size_t N_tail    = N - N_aligned;
 
         #pragma omp parallel for
         for (size_t i = 0; i < M * N; i++) C[i] = 0.0f;
 
-        void* ptr = std::aligned_alloc(64, Kc * Nc_aligned * sizeof(float));
+        // Full scalar fallback for matrices smaller than one kernel tile
+        if (M_aligned == 0 || N_aligned == 0) {
+            scalar_block(A, B, C, M, N, K, K, N, N);
+            return;
+        }
+
+        // ---------------------------------------------------------------
+        // N tail accumulation buffer: M_aligned rows × 12 cols (zero-init)
+        // Accumulates NEON output for the tail columns across all K blocks.
+        // Padded to 12 so the unmodified 8×12 kernel can write into it
+        // without bounds issues; only the first N_tail cols are scattered
+        // to C at the end.
+        // ---------------------------------------------------------------
+        std::vector<float> C_tail;
+        std::vector<float> packed_B_tail;
+        if (N_tail > 0) {
+            C_tail.assign(M_aligned * 12, 0.0f);
+            packed_B_tail.resize(Kc * 12);
+        }
+
+        void* ptr = std::aligned_alloc(64, Kc * Nc_cache * sizeof(float));
         AlignedBuffer packed_B(static_cast<float*>(ptr));
 
         for (size_t k_out = 0; k_out < K; k_out += Kc) {
             size_t current_Kc = std::min(Kc, K - k_out);
-            for (size_t j = 0; j < N; j += Nc) {
-                pack_B_block(B + k_out * N, packed_B.get(), j, Nc, current_Kc, N);
+
+            // Pack B tail for this K block once (reused by all M blocks below)
+            if (N_tail > 0) {
+                float* pbt = packed_B_tail.data();
+                std::fill(pbt, pbt + current_Kc * 12, 0.0f);
+                for (size_t k = 0; k < current_Kc; k++)
+                    for (size_t n = 0; n < N_tail; n++)
+                        pbt[k * 12 + n] = B[(k_out + k) * N + N_aligned + n];
+            }
+
+            for (size_t j = 0; j < N_aligned; j += Nc_cache) {
+                size_t current_Nc = std::min(Nc_cache, N_aligned - j);
+                pack_B_block(B + k_out * N, packed_B.get(), j, current_Nc, current_Kc, N);
                 #pragma omp parallel
                 {
                     alignas(64) float packed_A[Mc * Kc];
                     #pragma omp for schedule(static)
-                    for (size_t i = 0; i < M; i += Mc) {
-                        pack_A_block(A + i * K + k_out, packed_A, Mc, current_Kc, K);
-                        multiply(packed_A, packed_B.get(), C + i * N + j, Mc, Nc, current_Kc, N);
+                    for (size_t i = 0; i < M_aligned; i += Mc) {
+                        size_t current_Mc = std::min(Mc, M_aligned - i);
+                        pack_A_block(A + i * K + k_out, packed_A, current_Mc, current_Kc, K);
+                        multiply(packed_A, packed_B.get(), C + i * N + j, current_Mc, current_Nc, current_Kc, N);
+
+                        // N tail: reuse the freshly-packed A — no extra pack cost.
+                        // Guard j==0 so each K block contributes exactly once;
+                        // packed_B_tail is packed per K block, not per j iteration.
+                        if (N_tail > 0 && j == 0)
+                            multiply(packed_A, packed_B_tail.data(),
+                                     C_tail.data() + i * 12,
+                                     current_Mc, 12, current_Kc, 12);
                     }
                 }
             }
         }
+
+        // Scatter valid N_tail columns from C_tail into C
+        if (N_tail > 0) {
+            for (size_t i = 0; i < M_aligned; i++)
+                for (size_t n = 0; n < N_tail; n++)
+                    C[i * N + N_aligned + n] = C_tail[i * 12 + n];
+        }
+
+        // ---------------------------------------------------------------
+        // Scalar tail: M remainder — rows [M_aligned, M), all N columns
+        // (also covers the corner [M_aligned,M) x [N_aligned,N))
+        // ---------------------------------------------------------------
+        if (M_aligned < M)
+            scalar_block(A + M_aligned * K, B,
+                         C + M_aligned * N,
+                         M - M_aligned, N, K, K, N, N);
     }
 
 } // namespace GEMM
