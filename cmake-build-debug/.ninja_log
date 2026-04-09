@@ -1,4 +1,0 @@
-# ninja log v6
-3	379	1769715007082373221	CMakeFiles/MatrixLibrary.dir/main.cpp.o	4288fe99e15d14dc
-4	375	1769553095509730652	CMakeFiles/MatrixLibrary.dir/GEMMKernels.cpp.o	b02230adc74833fb
-379	406	1769715007458649023	MatrixLibrary	e7730d75696e8ef9

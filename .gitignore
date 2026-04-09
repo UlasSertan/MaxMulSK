@@ -1,0 +1,60 @@
+# ============================================================
+# Build outputs
+# ============================================================
+cmake-build-*/
+build/
+out/
+*.o
+*.a
+*.dylib
+*.so
+*.dSYM/
+
+# ============================================================
+# CLion / JetBrains IDE
+# ============================================================
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/usage.statistics.xml
+.idea/dictionaries/
+.idea/shelf/
+.idea/httpRequests/
+.idea/dataSources/
+.idea/sqldataviewer/
+
+# Keep: .idea/modules.xml, .idea/misc.xml, .idea/vcs.xml, .idea/*.iml
+# They define the project structure and are safe to commit.
+
+# ============================================================
+# CMake
+# ============================================================
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+CTestTestfile.cmake
+_deps/
+
+# ============================================================
+# macOS
+# ============================================================
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ============================================================
+# Compiler / toolchain artifacts
+# ============================================================
+*.ninja
+*.ninja_deps
+*.ninja_log
+compile_commands.json
+
+# ============================================================
+# Images / scratch files
+# ============================================================
+*.png
+*.jpg
+*.jpeg

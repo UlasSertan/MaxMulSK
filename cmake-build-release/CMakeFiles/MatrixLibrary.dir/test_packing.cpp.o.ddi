@@ -1,9 +1,0 @@
-{
-  "revision": 0,
-  "rules": [
-    {
-      "primary-output": "CMakeFiles/MatrixLibrary.dir/test_packing.cpp.o"
-    }
-  ],
-  "version": 1
-}
