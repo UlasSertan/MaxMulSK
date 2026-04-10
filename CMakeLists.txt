@@ -19,6 +19,7 @@ add_executable(MatrixLibrary
 target_compile_options(MatrixLibrary PRIVATE
         -O3 -Wall -Wextra
         -mcpu=apple-m4
+        -fopenmp
 )
 
 # NEON: ARMv8.4 baseline

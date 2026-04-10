@@ -377,25 +377,36 @@ namespace GEMM {
         void* ptr = std::aligned_alloc(64, Kc * Nc_cache * sizeof(float));
         AlignedBuffer packed_B(static_cast<float*>(ptr));
 
-        for (size_t k_out = 0; k_out < K; k_out += Kc) {
-            size_t current_Kc = std::min(Kc, K - k_out);
+        // Single parallel region for the entire computation.
+        // B packing done by one thread via omp single (others wait at the
+        // implicit barrier) — no thread pool teardown between tiles.
+        #pragma omp parallel
+        {
+            alignas(64) float packed_A[Mc * Kc];
 
-            // Pack B tail for this K block once (reused by all M blocks below)
-            if (N_tail > 0) {
-                float* pbt = packed_B_tail.data();
-                std::fill(pbt, pbt + current_Kc * 12, 0.0f);
-                for (size_t k = 0; k < current_Kc; k++)
-                    for (size_t n = 0; n < N_tail; n++)
-                        pbt[k * 12 + n] = B[(k_out + k) * N + N_aligned + n];
-            }
+            for (size_t k_out = 0; k_out < K; k_out += Kc) {
+                size_t current_Kc = std::min(Kc, K - k_out);
 
-            for (size_t j = 0; j < N_aligned; j += Nc_cache) {
-                size_t current_Nc = std::min(Nc_cache, N_aligned - j);
-                pack_B_block(B + k_out * N, packed_B.get(), j, current_Nc, current_Kc, N);
-                #pragma omp parallel
+                #pragma omp single
                 {
-                    alignas(64) float packed_A[Mc * Kc];
-                    #pragma omp for schedule(static)
+                    if (N_tail > 0) {
+                        float* pbt = packed_B_tail.data();
+                        std::fill(pbt, pbt + current_Kc * 12, 0.0f);
+                        for (size_t k = 0; k < current_Kc; k++)
+                            for (size_t n = 0; n < N_tail; n++)
+                                pbt[k * 12 + n] = B[(k_out + k) * N + N_aligned + n];
+                    }
+                }
+                // implicit barrier: all threads see packed_B_tail before proceeding
+
+                for (size_t j = 0; j < N_aligned; j += Nc_cache) {
+                    size_t current_Nc = std::min(Nc_cache, N_aligned - j);
+
+                    #pragma omp single
+                    pack_B_block(B + k_out * N, packed_B.get(), j, current_Nc, current_Kc, N);
+                    // implicit barrier: all threads see packed_B before proceeding
+
+                    #pragma omp for schedule(dynamic, 1)
                     for (size_t i = 0; i < M_aligned; i += Mc) {
                         size_t current_Mc = std::min(Mc, M_aligned - i);
                         pack_A_block(A + i * K + k_out, packed_A, current_Mc, current_Kc, K);

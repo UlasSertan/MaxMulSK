@@ -13,7 +13,7 @@ Compiler: LLVM/Clang `-O3 -mcpu=apple-m4`
 | Naive scalar | ~2 | Triple-loop, no optimization |
 | SIMD (NEON) | ~91.8 | 8×12 micro-kernel, no packing |
 | SIMD + Packing/Tiling | ~120 | Cache-blocked, packed A & B |
-| SIMD + Packing/Tiling + OpenMP | ~456 | 8-thread parallel (sweet spot) |
+| SIMD + Packing/Tiling + OpenMP | ~539 | 10-thread parallel, dynamic scheduling |
 
 ---
 
@@ -116,13 +116,36 @@ Testing three variants of the 8×12 NEON micro-kernel inner loop:
 
 ## 6. Threading Analysis
 
-| Threads | Behavior |
-|---|---|
-| 1–7 | Performance scales linearly |
-| 8 | Sweet spot — best stable performance/thermal ratio |
-| 10 | Raw GFLOPS increase, but efficiency drops as E-cores (narrower NEON pipelines) enter the pool |
+### OpenMP Structure
 
-Apple Silicon's P-core / E-core asymmetry means thread count needs to be tuned. E-cores have narrower NEON pipelines than P-cores, so saturating them increases throughput at the cost of per-thread efficiency and thermal headroom.
+Two bugs were fixed before meaningful multi-thread numbers could be measured:
+
+**Bug 1 — `-fopenmp` was missing from CMakeLists.txt.**
+The code linked against `libomp.dylib` and `omp_get_max_threads()` returned the correct thread count, so it looked like OpenMP was working. But without `-fopenmp`, Clang silently ignores all `#pragma omp` directives — every parallel region ran on the main thread. This is why the original "8-thread" number (456 GFLOPS) was actually just single-thread performance measured with a false sense of parallelism.
+
+**Bug 2 — parallel region was created and destroyed inside the tile loop.**
+The original structure opened `#pragma omp parallel` inside the `(k_out, j)` loop, so the thread pool was spawned and joined on every tile iteration. Worse, `pack_B_block` ran before the parallel region opened, meaning all threads were idle while one thread packed B for each tile. The fix was to hoist `#pragma omp parallel` outside both loops so threads are created once for the entire computation. B packing is now done inside the parallel region via `#pragma omp single`, which has an implicit barrier — one thread packs while others wait, but no one leaves the thread pool.
+
+**Scheduling — `schedule(static)` → `schedule(dynamic, 1)`.**
+M4 has 4 performance cores and 6 efficiency cores. With static scheduling, each thread gets a fixed number of M-tiles upfront. P-core threads finish their tiles fast and sit at the barrier waiting for E-core threads, which are ~3× slower for FP work. Dynamic scheduling with chunk size 1 means threads pull tiles from a shared queue as they finish — P-cores naturally grab more tiles, E-cores contribute what they can, and no thread idles until the queue is empty.
+
+### Thread Count Results (1024×1024×1024)
+
+| Threads | GFLOPS | Notes |
+|---|---|---|
+| 1 | ~122 | Single P-core baseline |
+| 4 | ~422 | P-cores only — ~3.5× scaling (memory bandwidth contention) |
+| 8 | ~500 | 4P + 4E, dynamic scheduling |
+| 10 | ~539 | All cores — best result |
+
+### Why Not Linear Scaling?
+
+Theoretical ceiling: 4 P-cores × 122 + 6 E-cores × ~40 ≈ 730 GFLOPS. Achieving 539 (74%) is reasonable given:
+- `pack_B_block` is still a serial barrier per k_out/j tile — one thread works while the rest spin.
+- Static load imbalance at job boundaries: the last few tiles are always E-core tiles.
+- Cache pressure: all threads share the packed B buffer and compete for L2/L3 bandwidth.
+
+The remaining gap to theoretical is best closed at a higher level — a Rust scheduling layer that assigns larger tiles to P-cores and smaller tiles to E-cores, rather than relying on dynamic stealing after the fact.
 
 ---
 
