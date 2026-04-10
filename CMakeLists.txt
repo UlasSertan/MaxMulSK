@@ -40,3 +40,29 @@ target_include_directories(MatrixLibrary PRIVATE
 target_link_libraries(MatrixLibrary PRIVATE
         /opt/homebrew/opt/libomp/lib/libomp.dylib
 )
+
+# =============================================================================
+# bench_compare — single-thread: our NEON vs Apple Accelerate
+# =============================================================================
+add_executable(bench_compare
+        bench/bench_compare.cpp
+        neon/GEMMKernels.cpp
+)
+
+target_compile_options(bench_compare PRIVATE
+        -O3
+        -mcpu=apple-m4
+        -march=armv8.4-a
+        -fopenmp
+)
+
+target_include_directories(bench_compare PRIVATE
+        /opt/homebrew/opt/libomp/include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(bench_compare PRIVATE
+        /opt/homebrew/opt/libomp/lib/libomp.dylib
+        "-framework Accelerate"
+        # OpenBLAS loaded at runtime via dlopen — no link-time dependency needed
+)
