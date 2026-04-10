@@ -9,7 +9,7 @@
 
 namespace NEONTest {
 
-    struct TestCase {
+        struct TestCase {
         size_t M, N, K;
         const char* name;
     };
@@ -17,11 +17,26 @@ namespace NEONTest {
     static void run_correctness() {
         std::cout << "\n--- NEON Correctness ---\n";
 
-        // N must be a multiple of 12 (kernel tile width constraint)
         TestCase cases[] = {
-            { 64,  60,  64, "Small  ( 64x60x64  )"},
-            {128, 120, 128, "Medium (128x120x128)"},
-            {256, 240, 256, "Large  (256x240x256)"},
+            // Fully aligned
+            { 64,  60,  64, "Aligned     ( 64x60x64  )"},
+            {128, 120, 128, "Aligned     (128x120x128)"},
+            {256, 240, 256, "Aligned     (256x240x256)"},
+            // M tail (M % 8 != 0)
+            { 67,  60,  64, "M tail      ( 67x60x64  )"},
+            // N tail (N % 12 != 0)
+            { 64,  65,  64, "N tail      ( 64x65x64  )"},
+            // K tail (K % 4 != 0)
+            { 64,  60,  65, "K tail      ( 64x60x65  )"},
+            // All tails at once
+            { 67,  65,  65, "All tails   ( 67x65x65  )"},
+            // Smaller than one kernel tile
+            {  4,   4,   4, "Tiny        (  4x4x4   )"},
+            // Non-uniform non-aligned
+            {100, 100, 100, "Non-aligned (100x100x100)"},
+            // N > Nc_cache (1020): forces J>1 in the j loop, exposes the
+            // N tail accumulation bug if the j==0 guard is missing
+            {128, 1100, 128, "N > Nc_cache (128x1100x128)"},
         };
 
         for (auto& tc : cases) {
