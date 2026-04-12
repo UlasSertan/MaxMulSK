@@ -12,8 +12,8 @@ add_executable(MatrixLibrary
         main.cpp
         neon/GEMMKernels.cpp
         neon/test_neon.cpp
-        # sme/SME-GEMMKernels.cpp  -- re-enable after NEON is complete
-        # sme/test_sme.cpp
+        sme/SME-GEMMKernels.cpp
+        sme/test_sme.cpp
 )
 
 target_compile_options(MatrixLibrary PRIVATE
@@ -28,9 +28,9 @@ set_source_files_properties(neon/GEMMKernels.cpp neon/test_neon.cpp PROPERTIES
 )
 
 # SME: ARMv8.7 + SME/SME2 extensions (re-enable with the sources above)
-# set_source_files_properties(sme/SME-GEMMKernels.cpp sme/test_sme.cpp PROPERTIES
-#         COMPILE_OPTIONS "-march=armv8.7-a+sme+sme2"
-# )
+set_source_files_properties(sme/SME-GEMMKernels.cpp sme/test_sme.cpp PROPERTIES
+        COMPILE_OPTIONS "-march=armv8.7-a+sme+sme2"
+)
 
 target_include_directories(MatrixLibrary PRIVATE
         /opt/homebrew/opt/libomp/include

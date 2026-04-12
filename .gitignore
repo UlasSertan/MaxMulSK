@@ -60,3 +60,4 @@ compile_commands.json
 *.jpeg
 
 CLAUDE.md
+.claude

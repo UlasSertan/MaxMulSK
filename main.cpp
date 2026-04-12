@@ -7,7 +7,8 @@
 #include "common/utils.hpp"
 #include "neon/GEMMKernels.hpp"
 #include "neon/test_neon.hpp"
-// #include "sme/SME-GEMMKernels.hpp"  -- re-enable after NEON is complete
+#include "sme/SME-GEMMKernels.hpp"
+#include "sme/test_sme.hpp"
 
 using Clock = std::chrono::high_resolution_clock;
 using Ms    = std::chrono::duration<double, std::milli>;
@@ -204,27 +205,24 @@ int main() {
     std::cout << "  Single thread\n";
     std::cout << "========================================\n";
 
-    // --- Unit tests ---
-    NEONTest::run();
+    // --- NEON unit tests (commented out for SME compile test) ---
+    // NEONTest::run();
 
-    // --- NEON: large correctness ---
-    Benchmark::neon_correctness_large();
+    // --- NEON benchmarks (commented out for SME compile test) ---
+    // Benchmark::neon_correctness_large();
+    // Benchmark::neon_speed_sweep();
+    // constexpr size_t M = 1024, N = 1024, K = 1024;
+    // std::vector<float> A(M * K), B(K * N), C_neon(M * N);
+    // Utils::fill_random(A);
+    // Utils::fill_random(B);
+    // Benchmark::run_single(A.data(), B.data(), C_neon.data(), M, N, K);
+    // std::cout << "\n========================================\n";
+    // std::cout << "  Stress Test (50 iterations, 1024^3)\n";
+    // std::cout << "========================================\n";
+    // Benchmark::run_stress(50, A.data(), B.data(), C_neon.data(), M, N, K);
 
-    // --- NEON: speed sweep ---
-    Benchmark::neon_speed_sweep();
-
-    // --- Single run at 1024^3 ---
-    constexpr size_t M = 1024, N = 1024, K = 1024;
-    std::vector<float> A(M * K), B(K * N), C_neon(M * N);
-    Utils::fill_random(A);
-    Utils::fill_random(B);
-
-    Benchmark::run_single(A.data(), B.data(), C_neon.data(), M, N, K);
-
-    std::cout << "\n========================================\n";
-    std::cout << "  Stress Test (50 iterations, 1024^3)\n";
-    std::cout << "========================================\n";
-    Benchmark::run_stress(50, A.data(), B.data(), C_neon.data(), M, N, K);
+    // --- SME tests ---
+    SMETest::run();
 
     return 0;
 }

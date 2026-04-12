@@ -196,22 +196,6 @@ namespace SMEKernels {
     }
 
     // =========================================================================
-    // DISPATCH WRAPPERS
-    // =========================================================================
-
-    void pack_A_dispatch(const float* A, float* packed_A,
-                         size_t M_curr, size_t K_curr,
-                         size_t curr_row, size_t curr_col, size_t K) {
-        pack_A_streaming(A, packed_A, M_curr, K_curr, curr_row, curr_col, K);
-    }
-
-    void pack_B_dispatch(const float* B, float* packed_B,
-                         size_t N_curr, size_t K_curr,
-                         size_t curr_row, size_t N, size_t curr_col) {
-        pack_B_streaming(B, packed_B, N_curr, K_curr, curr_row, N, curr_col);
-    }
-
-    // =========================================================================
     // MICRO KERNEL: (4*SVL) x SVL output tile using ZA accumulator
     // =========================================================================
     __attribute__((noinline))
@@ -237,16 +221,25 @@ namespace SMEKernels {
 
         svfloat32_t inactive = svundef_f32();
 
-        // Store each ZA tile back into C, accumulating with existing values
-        for (int tile = 0; tile < 4; tile++) {
-            float* C_tile = C + tile * SVL * wide_of_C;
-            for (int i = 0; i < (int)SVL; i++) {
-                svfloat32_t result = svread_hor_za32_f32_m(inactive, pg, tile, i);
-                float* ptr = C_tile + i * wide_of_C;
-                svfloat32_t existing = svld1_f32(pg, ptr);
-                svst1_f32(pg, ptr, svadd_f32_x(pg, existing, result));
-            }
-        }
+        // Store each ZA tile back into C, accumulating with existing values.
+        // Tile index must be a compile-time constant — unroll manually.
+        #define STORE_ZA_TILE(TILE)                                              \
+        do {                                                                     \
+            float* C_tile = C + (TILE) * SVL * wide_of_C;                        \
+            for (int i = 0; i < (int)SVL; i++) {                                 \
+                svfloat32_t result = svread_hor_za32_f32_m(inactive, pg, TILE, i);\
+                float* ptr = C_tile + i * wide_of_C;                             \
+                svfloat32_t existing = svld1_f32(pg, ptr);                       \
+                svst1_f32(pg, ptr, svadd_f32_x(pg, existing, result));           \
+            }                                                                    \
+        } while (0)
+
+        STORE_ZA_TILE(0);
+        STORE_ZA_TILE(1);
+        STORE_ZA_TILE(2);
+        STORE_ZA_TILE(3);
+
+        #undef STORE_ZA_TILE
     }
 
     // =========================================================================
@@ -255,10 +248,10 @@ namespace SMEKernels {
     struct FreeDeleter { void operator()(void* p) { std::free(p); } };
     using AlignedBuffer = std::unique_ptr<float[], FreeDeleter>;
 
-    __arm_new("za")
+    __arm_locally_streaming __arm_new("za")
     __attribute__((noinline))
     void run_multiplication(const float* A, const float* B, float* C,
-                            size_t M, size_t K, size_t N) __arm_streaming {
+                            size_t M, size_t K, size_t N) {
         const size_t SVL = static_cast<size_t>(svcntsw());
 
         constexpr size_t M_tile = 64;
@@ -277,11 +270,11 @@ namespace SMEKernels {
             size_t nc = std::min(N_tile, N - n);
             for (size_t k = 0; k < K; k += K_tile) {
                 size_t kc = std::min(K_tile, K - k);
-                pack_B_dispatch(B, packed_B.get(), nc, kc, k, N, n);
+                pack_B_streaming(B, packed_B.get(), nc, kc, k, N, n);
 
                 for (size_t m = 0; m < M; m += M_tile) {
                     size_t mc = std::min(M_tile, M - m);
-                    pack_A_dispatch(A, packed_A.get(), mc, kc, m, k, K);
+                    pack_A_streaming(A, packed_A.get(), mc, kc, m, k, K);
 
                     for (size_t jr = 0; jr < nc; jr += N_step) {
                         for (size_t ir = 0; ir < mc; ir += M_step) {

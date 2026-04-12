@@ -9,10 +9,11 @@
 
 namespace SMETest {
 
+    __arm_locally_streaming
     static void run_packing() {
         std::cout << "\n--- SME Packing ---\n";
 
-        const size_t SVL = static_cast<size_t>(svcntsw());
+        const size_t SVL = static_cast<size_t>(svcntw());
         const size_t M = 20, K = 35, N = 41;
 
         // Deterministic input for easy manual verification
@@ -30,7 +31,7 @@ namespace SMETest {
 
         // pack_B: expected layout — packed_B[n * K_curr + k] == B[k * N + n]
         std::vector<float> packed_B(K_curr * ((N_curr + SVL - 1) / SVL) * SVL, -999.0f);
-        SMEKernels::pack_B_dispatch(B.data(), packed_B.data(), N_curr, K_curr, 0, N, 0);
+        SMEKernels::pack_B_streaming(B.data(), packed_B.data(), N_curr, K_curr, 0, N, 0);
 
         bool pack_B_ok = true;
         for (size_t k = 0; k < K_curr && pack_B_ok; k++) {
@@ -50,7 +51,7 @@ namespace SMETest {
 
         // pack_A: expected layout — packed_A[panel * K_curr * SVL + k * SVL + row] == A[m * K + k]
         std::vector<float> packed_A(M_curr * K_curr * 2, -999.0f);
-        SMEKernels::pack_A_dispatch(A.data(), packed_A.data(), M_curr, K_curr, 0, 0, K);
+        SMEKernels::pack_A_streaming(A.data(), packed_A.data(), M_curr, K_curr, 0, 0, K);
 
         bool pack_A_ok = true;
         for (size_t m = 0; m < M_curr && pack_A_ok; m++) {
