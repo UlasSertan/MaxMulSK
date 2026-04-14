@@ -9,9 +9,9 @@ Explores and benchmarks three levels of compute on ARM:
 | Scalar | — | Naive triple-loop reference | ~2 |
 | NEON | ARMv8.4 | 8×12 micro-kernel, 4× K-unroll, in-register transpose | ~123 |
 | NEON + OpenMP | ARMv8.4 | Above + multi-thread, dynamic scheduling | ~539 |
-| SME | ARMv8.7 + SME/SME2 | 4×SVL outer-product micro-kernel using ZA accumulator tiles | WIP |
+| SME | ARMv8.7 + SME/SME2 | 4×SVL outer-product micro-kernel using ZA accumulator tiles | ~482 |
 
-Both optimized kernels use cache-blocking (Mc=64, Kc=256, Nc=1020) and pack A/B into contiguous, kernel-friendly layouts before computing. Arbitrary matrix dimensions are handled correctly: non-aligned M/K/N tails are covered with zero impact on the aligned hot path. See [BENCHMARKS.md](BENCHMARKS.md) for full experimental results including power/energy analysis, cache behavior, instruction profiling, and micro-kernel tuning experiments.
+All optimized kernels use cache-blocking and pack A/B into contiguous, kernel-friendly layouts before computing. Arbitrary matrix dimensions are handled correctly: non-aligned M/K/N tails are covered with zero impact on the aligned hot path. The SME kernel uses SVE predicated loads for tail handling and ZA tile accumulators for outer-product computation. See [BENCHMARKS.md](BENCHMARKS.md) for full experimental results including power/energy analysis, cache behavior, instruction profiling, and micro-kernel tuning experiments.
 
 ## Single-Thread Comparison vs Industry Libraries
 
@@ -42,8 +42,8 @@ MatrixLibrary/
 │   ├── GEMMKernels.hpp/.cpp   # NEON kernel + packing — complete
 │   └── test_neon.hpp/.cpp     # Packing correctness + GEMM correctness vs scalar
 ├── sme/
-│   ├── SME-GEMMKernels.hpp/.cpp  # SME/SVE kernel + packing — WIP, excluded from build
-│   └── test_sme.hpp/.cpp         # SME tests — WIP, excluded from build
+│   ├── SME-GEMMKernels.hpp/.cpp  # SME/SVE kernel + packing — working
+│   └── test_sme.hpp/.cpp         # Packing + correctness + benchmark tests for SME
 ├── bench/
 │   ├── bench_compare.cpp      # C++ single-thread comparison: NEON vs Accelerate vs OpenBLAS
 │   ├── bench_python.py        # Python single-thread comparison: NumPy vs PyTorch
@@ -83,7 +83,8 @@ Running `./run.sh` executes NEON unit tests (correctness vs scalar reference acr
 - [x] Edge-case handling for NEON (non-divisible M/K/N)
 - [x] OpenMP parallelism with correct thread structure and dynamic scheduling
 - [x] Single-thread competitor benchmark (Accelerate, OpenBLAS, NumPy, PyTorch)
-- [ ] Fix SME bugs (BUG-1 through BUG-6, see TODO.md)
-- [ ] Re-enable SME in CMakeLists and main, run full correctness suite
+- [x] Fix SME bugs (BUG-1 through BUG-6 + butterfly permutation + software pipelining)
+- [x] Re-enable SME in CMakeLists and main, run full correctness suite
+- [ ] Optimize SME kernel (tiling, N-tail, threading)
 - [ ] Benchmark SME vs NEON vs Accelerate
 - [ ] Rust scheduling layer for heterogeneous work distribution (P-core vs E-core)

@@ -97,10 +97,64 @@ namespace SMETest {
         }
     }
 
+    static void run_benchmark() {
+            std::cout << "\n--- Performance Benchmark (GFLOPS) ---\n";
+
+            // Performans ölçümü için matris boyutlarının donanımı zorlayacak kadar
+            // büyük olması (örneğin önbelleğe sığmaması) daha doğru sonuç verir.
+            struct TestCase { size_t M, N, K; const char* name; };
+            TestCase cases[] = {
+                { 256,  256,  256, "Small  ( 256x256x256 )"},
+                { 512,  512,  512, "Medium ( 512x512x512 )"},
+                {1024, 1024, 1024, "Large  (1024x1024x1024)"},
+                {2048, 2048, 2048, "Huge   (2048x2048x2048)"}
+            };
+
+            const int num_iterations = 10; // Daha tutarlı bir ortalama elde etmek için
+
+            for (auto& tc : cases) {
+                std::vector<float> A(tc.M * tc.K);
+                std::vector<float> B(tc.K * tc.N);
+                std::vector<float> C(tc.M * tc.N, 0.0f);
+
+                Utils::fill_random(A);
+                Utils::fill_random(B);
+
+                // Isınma (Warm-up) turu: Önbelleği doldurmak ve işlemci frekansını
+                // maksimum seviyeye (turbo boost vb.) çekmek için bir kez boşa çalıştırıyoruz.
+                SMEKernels::run_multiplication(A.data(), B.data(), C.data(), tc.M, tc.K, tc.N);
+
+                // Zaman ölçümünü başlat
+                auto start = std::chrono::high_resolution_clock::now();
+
+                for (int i = 0; i < num_iterations; i++) {
+                    // NEON testi için burayı GEMM::package(A.data(), B.data(), C.data(), tc.M, tc.N, tc.K);
+                    // olarak değiştirmelisin.
+                    SMEKernels::run_multiplication(A.data(), B.data(), C.data(), tc.M, tc.K, tc.N);
+                }
+
+                // Zaman ölçümünü bitir
+                auto end = std::chrono::high_resolution_clock::now();
+                std::chrono::duration<double> diff = end - start;
+                double seconds = diff.count();
+
+                // GFLOPS Hesabı
+                // Toplam FLOPs = 2 * M * N * K * iterasyon_sayısı
+                double total_flops = 2.0 * tc.M * tc.N * tc.K * num_iterations;
+                double gflops = (total_flops / 1e9) / seconds;
+                double ms_per_iter = (seconds / num_iterations) * 1000.0;
+
+                std::cout << "  " << tc.name << " : "
+                          << gflops << " GFLOPS ("
+                          << ms_per_iter << " ms/iter)\n";
+            }
+        }
+
     void run() {
         std::cout << "========== SME Tests ==========\n";
         run_packing();
         run_correctness();
+        run_benchmark();
         std::cout << "===============================\n";
     }
 

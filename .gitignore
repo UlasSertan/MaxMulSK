@@ -59,5 +59,6 @@ compile_commands.json
 *.jpg
 *.jpeg
 
+.private/
 CLAUDE.md
 .claude

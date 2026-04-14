@@ -18,67 +18,89 @@ namespace SMEKernels {
                           size_t M_curr, size_t K_curr,
                           size_t curr_row, size_t curr_col, size_t K) __arm_streaming {
         const size_t SVL = static_cast<size_t>(svcntsw());
-        const svbool_t pg = svptrue_b32();
         const size_t K_full = (K_curr / SVL) * SVL;
+        size_t m = 0;
 
-        for (size_t m = 0; m < M_curr; m += SVL) {
+        // Predicates to handle tail cases
+        const svbool_t pg = svptrue_b32();
+        const svbool_t pfalse = svpfalse_b();
+
+        for (m; m < M_curr; m += SVL) {
             float* panel_base = packed_A + (m / SVL) * (K_curr * SVL);
             const float* row_base = A + (m + curr_row) * K + curr_col;
             size_t k = 0;
+            size_t rows_here = std::min(SVL, M_curr - m);
+
+            svbool_t p0 = (0 < rows_here) ? pg : pfalse;
+            svbool_t p1 = (1 < rows_here) ? pg : pfalse;
+            svbool_t p2 = (2 < rows_here) ? pg : pfalse;
+            svbool_t p3 = (3 < rows_here) ? pg : pfalse;
+            svbool_t p4 = (4 < rows_here) ? pg : pfalse;
+            svbool_t p5 = (5 < rows_here) ? pg : pfalse;
+            svbool_t p6 = (6 < rows_here) ? pg : pfalse;
+            svbool_t p7 = (7 < rows_here) ? pg : pfalse;
+            svbool_t p8 = (8 < rows_here) ? pg : pfalse;
+            svbool_t p9 = (9 < rows_here) ? pg : pfalse;
+            svbool_t p10 = (10 < rows_here) ? pg : pfalse;
+            svbool_t p11 = (11 < rows_here) ? pg : pfalse;
+            svbool_t p12 = (12 < rows_here) ? pg : pfalse;
+            svbool_t p13 = (13 < rows_here) ? pg : pfalse;
+            svbool_t p14 = (14 < rows_here) ? pg : pfalse;
+            svbool_t p15 = (15 < rows_here) ? pg : pfalse;
 
             // Main loop: load SVL-wide rows and transpose into column panels
             for (; k < K_full; k += SVL) {
-                svfloat32_t r0  = svld1_f32(pg, row_base + k);
-                svfloat32_t r1  = svld1_f32(pg, row_base + k +  K);
-                svfloat32_t r2  = svld1_f32(pg, row_base + k +  2*K);
-                svfloat32_t r3  = svld1_f32(pg, row_base + k +  3*K);
-                svfloat32_t r4  = svld1_f32(pg, row_base + k +  4*K);
-                svfloat32_t r5  = svld1_f32(pg, row_base + k +  5*K);
-                svfloat32_t r6  = svld1_f32(pg, row_base + k +  6*K);
-                svfloat32_t r7  = svld1_f32(pg, row_base + k +  7*K);
-                svfloat32_t r8  = svld1_f32(pg, row_base + k +  8*K);
-                svfloat32_t r9  = svld1_f32(pg, row_base + k +  9*K);
-                svfloat32_t r10 = svld1_f32(pg, row_base + k + 10*K);
-                svfloat32_t r11 = svld1_f32(pg, row_base + k + 11*K);
-                svfloat32_t r12 = svld1_f32(pg, row_base + k + 12*K);
-                svfloat32_t r13 = svld1_f32(pg, row_base + k + 13*K);
-                svfloat32_t r14 = svld1_f32(pg, row_base + k + 14*K);
-                svfloat32_t r15 = svld1_f32(pg, row_base + k + 15*K);
+                svfloat32_t r0  = svld1_f32(p0, row_base + k);
+                svfloat32_t r1  = svld1_f32(p1, row_base + k +  K);
+                svfloat32_t r2  = svld1_f32(p2, row_base + k +  2*K);
+                svfloat32_t r3  = svld1_f32(p3, row_base + k +  3*K);
+                svfloat32_t r4  = svld1_f32(p4, row_base + k +  4*K);
+                svfloat32_t r5  = svld1_f32(p5, row_base + k +  5*K);
+                svfloat32_t r6  = svld1_f32(p6, row_base + k +  6*K);
+                svfloat32_t r7  = svld1_f32(p7, row_base + k +  7*K);
+                svfloat32_t r8  = svld1_f32(p8, row_base + k +  8*K);
+                svfloat32_t r9  = svld1_f32(p9, row_base + k +  9*K);
+                svfloat32_t r10 = svld1_f32(p10, row_base + k + 10*K);
+                svfloat32_t r11 = svld1_f32(p11, row_base + k + 11*K);
+                svfloat32_t r12 = svld1_f32(p12, row_base + k + 12*K);
+                svfloat32_t r13 = svld1_f32(p13, row_base + k + 13*K);
+                svfloat32_t r14 = svld1_f32(p14, row_base + k + 14*K);
+                svfloat32_t r15 = svld1_f32(p15, row_base + k + 15*K);
 
                 // 4-stage butterfly transpose (zip pairs → groups of 4 → 8 → 16)
-                svfloat32_t s1_0L = svzip1_f32(r0,  r1);
-                svfloat32_t s1_0H = svzip2_f32(r0,  r1);
-                svfloat32_t s1_1L = svzip1_f32(r2,  r3);
-                svfloat32_t s1_1H = svzip2_f32(r2,  r3);
-                svfloat32_t s1_2L = svzip1_f32(r4,  r5);
-                svfloat32_t s1_2H = svzip2_f32(r4,  r5);
-                svfloat32_t s1_3L = svzip1_f32(r6,  r7);
-                svfloat32_t s1_3H = svzip2_f32(r6,  r7);
-                svfloat32_t s1_4L = svzip1_f32(r8,  r9);
-                svfloat32_t s1_4H = svzip2_f32(r8,  r9);
-                svfloat32_t s1_5L = svzip1_f32(r10, r11);
-                svfloat32_t s1_5H = svzip2_f32(r10, r11);
-                svfloat32_t s1_6L = svzip1_f32(r12, r13);
-                svfloat32_t s1_6H = svzip2_f32(r12, r13);
-                svfloat32_t s1_7L = svzip1_f32(r14, r15);
-                svfloat32_t s1_7H = svzip2_f32(r14, r15);
+                svfloat32_t s1_0L = svzip1_f32(r0,  r8);
+                svfloat32_t s1_0H = svzip2_f32(r0,  r8);
+                svfloat32_t s1_1L = svzip1_f32(r1,  r9);
+                svfloat32_t s1_1H = svzip2_f32(r1,  r9);
+                svfloat32_t s1_2L = svzip1_f32(r2,  r10);
+                svfloat32_t s1_2H = svzip2_f32(r2,  r10);
+                svfloat32_t s1_3L = svzip1_f32(r3,  r11);
+                svfloat32_t s1_3H = svzip2_f32(r3,  r11);
+                svfloat32_t s1_4L = svzip1_f32(r4,  r12);
+                svfloat32_t s1_4H = svzip2_f32(r4,  r12);
+                svfloat32_t s1_5L = svzip1_f32(r5, r13);
+                svfloat32_t s1_5H = svzip2_f32(r5, r13);
+                svfloat32_t s1_6L = svzip1_f32(r6, r14);
+                svfloat32_t s1_6H = svzip2_f32(r6, r14);
+                svfloat32_t s1_7L = svzip1_f32(r7, r15);
+                svfloat32_t s1_7H = svzip2_f32(r7, r15);
 
-                svfloat32_t s2_0L = svzip1_f32(s1_0L, s1_2L);
-                svfloat32_t s2_0H = svzip2_f32(s1_0L, s1_2L);
-                svfloat32_t s2_1L = svzip1_f32(s1_0H, s1_2H);
-                svfloat32_t s2_1H = svzip2_f32(s1_0H, s1_2H);
-                svfloat32_t s2_2L = svzip1_f32(s1_1L, s1_3L);
-                svfloat32_t s2_2H = svzip2_f32(s1_1L, s1_3L);
-                svfloat32_t s2_3L = svzip1_f32(s1_1H, s1_3H);
-                svfloat32_t s2_3H = svzip2_f32(s1_1H, s1_3H);
-                svfloat32_t s2_4L = svzip1_f32(s1_4L, s1_6L);
-                svfloat32_t s2_4H = svzip2_f32(s1_4L, s1_6L);
-                svfloat32_t s2_5L = svzip1_f32(s1_4H, s1_6H);
-                svfloat32_t s2_5H = svzip2_f32(s1_4H, s1_6H);
-                svfloat32_t s2_6L = svzip1_f32(s1_5L, s1_7L);
-                svfloat32_t s2_6H = svzip2_f32(s1_5L, s1_7L);
-                svfloat32_t s2_7L = svzip1_f32(s1_5H, s1_7H);
-                svfloat32_t s2_7H = svzip2_f32(s1_5H, s1_7H);
+                svfloat32_t s2_0L = svzip1_f32(s1_0L, s1_4L);
+                svfloat32_t s2_0H = svzip2_f32(s1_0L, s1_4L);
+                svfloat32_t s2_1L = svzip1_f32(s1_0H, s1_4H);
+                svfloat32_t s2_1H = svzip2_f32(s1_0H, s1_4H);
+                svfloat32_t s2_2L = svzip1_f32(s1_1L, s1_5L);
+                svfloat32_t s2_2H = svzip2_f32(s1_1L, s1_5L);
+                svfloat32_t s2_3L = svzip1_f32(s1_1H, s1_5H);
+                svfloat32_t s2_3H = svzip2_f32(s1_1H, s1_5H);
+                svfloat32_t s2_4L = svzip1_f32(s1_2L, s1_6L);
+                svfloat32_t s2_4H = svzip2_f32(s1_2L, s1_6L);
+                svfloat32_t s2_5L = svzip1_f32(s1_2H, s1_6H);
+                svfloat32_t s2_5H = svzip2_f32(s1_2H, s1_6H);
+                svfloat32_t s2_6L = svzip1_f32(s1_3L, s1_7L);
+                svfloat32_t s2_6H = svzip2_f32(s1_3L, s1_7L);
+                svfloat32_t s2_7L = svzip1_f32(s1_3H, s1_7H);
+                svfloat32_t s2_7H = svzip2_f32(s1_3H, s1_7H);
 
                 svfloat32_t s3_0L = svzip1_f32(s2_0L, s2_4L);
                 svfloat32_t s3_0H = svzip2_f32(s2_0L, s2_4L);
@@ -133,13 +155,17 @@ namespace SMEKernels {
                 svst1_f32(pg, out + 15*SVL, col15);
             }
 
-            // Scalar tail for K not divisible by SVL
+            // K tail: gather one column at a time via tmp buffer
+            // Zero tmp using SVE (avoids __arm_sc_memset from scalar loops)
             float tmp[16];
+            svst1_f32(pg, tmp, svdup_f32(0.0f));
             for (; k < K_curr; k++) {
-                for (size_t row = 0; row < SVL; row++)
+                for (size_t row = 0; row < rows_here; row++)
                     tmp[row] = row_base[k + row * K];
                 svfloat32_t col_vec = svld1_f32(pg, tmp);
                 svst1_f32(pg, panel_base + k * SVL, col_vec);
+                // Re-zero only the lanes we wrote (avoid memset)
+                svst1_f32(pg, tmp, svdup_f32(0.0f));
             }
         }
     }
@@ -206,18 +232,51 @@ namespace SMEKernels {
         svbool_t pg = svptrue_b32();
         const size_t ps = SVL * K_curr;
 
-        for (size_t k = 0; k < K_curr; k++) {
-            svfloat32_t a0 = svld1(pg, packed_A + 0*ps + k*SVL);
-            svfloat32_t a1 = svld1(pg, packed_A + 1*ps + k*SVL);
-            svfloat32_t a2 = svld1(pg, packed_A + 2*ps + k*SVL);
-            svfloat32_t a3 = svld1(pg, packed_A + 3*ps + k*SVL);
-            svfloat32_t b0 = svld1(pg, packed_B + k*SVL);
+        // Pointerları döngü dışında hazırla
+        const float* pA0 = packed_A + 0*ps;
+        const float* pA1 = packed_A + 1*ps;
+        const float* pA2 = packed_A + 2*ps;
+        const float* pA3 = packed_A + 3*ps;
+        const float* pB  = packed_B;
+
+        // PROLOGUE: Döngüye girmeden ilk adımın (k=0) verilerini yükle
+        svfloat32_t a0 = svld1_f32(pg, pA0); pA0 += SVL;
+        svfloat32_t a1 = svld1_f32(pg, pA1); pA1 += SVL;
+        svfloat32_t a2 = svld1_f32(pg, pA2); pA2 += SVL;
+        svfloat32_t a3 = svld1_f32(pg, pA3); pA3 += SVL;
+        svfloat32_t b0 = svld1_f32(pg, pB);  pB  += SVL;
+
+        // ANA DÖNGÜ
+        for (size_t k = 0; k < K_curr - 1; k++) {
+            // k. adımın verileri ZATEN bir önceki döngüde (veya prologue'da) yüklendi!
+            // Şimdi k'nın matematiğini yaparken, araya k+1'in yüklemelerini (prefetch) saklıyoruz:
 
             svmopa_za32_f32_m(0, pg, pg, a0, b0);
+            svfloat32_t next_a0 = svld1_f32(pg, pA0); pA0 += SVL; // k+1 için yükle
+
             svmopa_za32_f32_m(1, pg, pg, a1, b0);
+            svfloat32_t next_a1 = svld1_f32(pg, pA1); pA1 += SVL; // k+1 için yükle
+
             svmopa_za32_f32_m(2, pg, pg, a2, b0);
+            svfloat32_t next_a2 = svld1_f32(pg, pA2); pA2 += SVL; // k+1 için yükle
+
             svmopa_za32_f32_m(3, pg, pg, a3, b0);
+            svfloat32_t next_a3 = svld1_f32(pg, pA3); pA3 += SVL; // k+1 için yükle
+            svfloat32_t next_b0 = svld1_f32(pg, pB);  pB  += SVL; // k+1 için yükle
+
+            // Verileri bir sonraki döngü için güncelle
+            a0 = next_a0;
+            a1 = next_a1;
+            a2 = next_a2;
+            a3 = next_a3;
+            b0 = next_b0;
         }
+
+        // EPILOGUE: Döngüden çıkınca son adımın (K_curr - 1) matematiğini tamamla
+        svmopa_za32_f32_m(0, pg, pg, a0, b0);
+        svmopa_za32_f32_m(1, pg, pg, a1, b0);
+        svmopa_za32_f32_m(2, pg, pg, a2, b0);
+        svmopa_za32_f32_m(3, pg, pg, a3, b0);
 
         svfloat32_t inactive = svundef_f32();
 
@@ -256,7 +315,7 @@ namespace SMEKernels {
 
         constexpr size_t M_tile = 64;
         constexpr size_t K_tile = 256;
-        constexpr size_t N_tile = 64;
+        constexpr size_t N_tile = 1024;
 
         AlignedBuffer packed_A(static_cast<float*>(
             std::aligned_alloc(64, M_tile * K_tile * sizeof(float))));

@@ -197,7 +197,7 @@ namespace Benchmark {
 // MAIN
 // =============================================================================
 int main() {
-    omp_set_num_threads(8);
+    omp_set_num_threads(1);
     std::cout << "  Threads: " << omp_get_max_threads() << "\n";
 
     std::cout << "========================================\n";
