@@ -14,6 +14,7 @@ Compiler: LLVM/Clang `-O3 -mcpu=apple-m4`
 | SIMD (NEON) | ~91.8 | 8×12 micro-kernel, no packing |
 | SIMD + Packing/Tiling | ~120 | Cache-blocked, packed A & B |
 | SIMD + Packing/Tiling + OpenMP | ~539 | 10-thread parallel, dynamic scheduling |
+| SME/SVE | ~1200 | 1 thread, 2x2 and 4x1 kernels |
 
 ---
 
