@@ -1,4 +1,4 @@
-#include "SME-GEMMKernels.hpp"
+#include "SME-GEMMKernels2x2.hpp"
 
 #include <arm_sme.h>
 #include <arm_sve.h>
@@ -8,7 +8,7 @@
 
 #define RESTRICT __restrict__
 
-namespace SMEKernels {
+namespace SMEKernels2x2 {
 
     // =========================================================================
     // PACK A  (M x K) → panel-major, transposed, SVL-wide columns
@@ -171,134 +171,130 @@ namespace SMEKernels {
     }
 
     // =========================================================================
-    // PACK B  (K x N) → panel-major, SVL-wide panels
+    // PACK B  (K x N) → 2*SVL-wide panels, interleaved per k-step
+    // Layout per panel: [b0_k0 | b1_k0 | b0_k1 | b1_k1 | ...]
+    // Each k-step stores 2*SVL contiguous floats (two SVL vectors side by side)
     // =========================================================================
     __attribute__((noinline))
     void pack_B_streaming(const float* B, float* packed_B,
                           size_t N_curr, size_t K_curr,
                           size_t curr_row, size_t N, size_t curr_col) __arm_streaming {
         const size_t SVL = static_cast<size_t>(svcntsw());
-        const svcount_t full_mask4 = svptrue_c32();
-        const svbool_t  pg         = svptrue_b32();
-        const size_t vector_size = SVL * 4;
-        const size_t N_full = (N_curr / vector_size) * vector_size;
-        const size_t panel_stride = K_curr * SVL;
+        const svbool_t pg = svptrue_b32();
+        const size_t panel_width = 2 * SVL;
+        const size_t panel_stride = K_curr * panel_width; // total floats per 2*SVL panel
 
         size_t n = 0;
 
-        // Main loop: process 4*SVL columns at a time using x4 load
-        for (; n < N_full; n += vector_size) {
-            float* dst0 = packed_B + n * K_curr;
-            float* dst1 = dst0 + panel_stride;
-            float* dst2 = dst1 + panel_stride;
-            float* dst3 = dst2 + panel_stride;
+        // Main loop: process 2*SVL columns at a time
+        for (; n + panel_width <= N_curr; n += panel_width) {
+            float* dst = packed_B + (n / panel_width) * panel_stride;
 
             for (size_t k = 0; k < K_curr; k++) {
-                svfloat32x4_t vec = svld1_f32_x4(full_mask4,
-                                                  B + (k + curr_row) * N + curr_col + n);
-                svst1_f32(pg, dst0, svget4_f32(vec, 0));
-                svst1_f32(pg, dst1, svget4_f32(vec, 1));
-                svst1_f32(pg, dst2, svget4_f32(vec, 2));
-                svst1_f32(pg, dst3, svget4_f32(vec, 3));
-                dst0 += SVL;
-                dst1 += SVL;
-                dst2 += SVL;
-                dst3 += SVL;
+                const float* src = B + (k + curr_row) * N + curr_col + n;
+                svfloat32_t v0 = svld1_f32(pg, src);
+                svfloat32_t v1 = svld1_f32(pg, src + SVL);
+                svst1_f32(pg, dst,       v0);
+                svst1_f32(pg, dst + SVL, v1);
+                dst += panel_width;
             }
         }
 
-        // Tail: remaining columns (< 4*SVL), one SVL panel at a time
-        for (; n < N_curr; n += SVL) {
-            float* dst = packed_B + n * K_curr;
-            svbool_t ld_mask = svwhilelt_b32_u64(n, N_curr);
+        // Tail: remaining columns (< 2*SVL)
+        if (n < N_curr) {
+            float* dst = packed_B + (n / panel_width) * panel_stride;
+            svbool_t mask0 = svwhilelt_b32_u64(n, N_curr);
+            svbool_t mask1 = svwhilelt_b32_u64(n + SVL, N_curr);
 
             for (size_t k = 0; k < K_curr; k++) {
-                svfloat32_t vec = svld1_f32(ld_mask,
-                                            B + (k + curr_row) * N + curr_col + n);
-                svst1_f32(pg, dst, vec);
-                dst += SVL;
+                const float* src = B + (k + curr_row) * N + curr_col + n;
+                svfloat32_t v0 = svld1_f32(mask0, src);
+                svfloat32_t v1 = svld1_f32(mask1, src + SVL);
+                svst1_f32(pg, dst,       v0);
+                svst1_f32(pg, dst + SVL, v1);
+                dst += panel_width;
             }
         }
     }
 
     // =========================================================================
-    // MICRO KERNEL: (4*SVL) x SVL output tile using ZA accumulator
+    // MICRO KERNEL 2x2: (2*SVL) rows × (2*SVL) cols using ZA accumulator
+    // Uses 4 ZA tiles:
+    //   ZA0 = A_panel0 × B_panel0  (top-left)
+    //   ZA1 = A_panel0 × B_panel1  (top-right)
+    //   ZA2 = A_panel1 × B_panel0  (bottom-left)
+    //   ZA3 = A_panel1 × B_panel1  (bottom-right)
     // =========================================================================
     __attribute__((noinline))
-    void micro_kernel_4x1(float* RESTRICT packed_A, float* RESTRICT packed_B, float* RESTRICT C,
+    void micro_kernel_2x2(float* RESTRICT packed_A, float* RESTRICT packed_B, float* RESTRICT C,
                           size_t K_curr, size_t wide_of_C) __arm_out("za") __arm_streaming {
         svzero_za();
         const size_t SVL = static_cast<size_t>(svcntsw());
         svbool_t pg = svptrue_b32();
         const size_t ps = SVL * K_curr;
 
-        // Pointerları döngü dışında hazırla
+        // A has 2 panels (separate, stride ps apart)
+        // B has interleaved layout: [b0 | b1] per k-step, stride 2*SVL
         const float* pA0 = packed_A + 0*ps;
         const float* pA1 = packed_A + 1*ps;
-        const float* pA2 = packed_A + 2*ps;
-        const float* pA3 = packed_A + 3*ps;
         const float* pB  = packed_B;
 
-        // PROLOGUE: Döngüye girmeden ilk adımın (k=0) verilerini yükle
+        // PROLOGUE: load k=0 data
         svfloat32_t a0 = svld1_f32(pg, pA0); pA0 += SVL;
         svfloat32_t a1 = svld1_f32(pg, pA1); pA1 += SVL;
-        svfloat32_t a2 = svld1_f32(pg, pA2); pA2 += SVL;
-        svfloat32_t a3 = svld1_f32(pg, pA3); pA3 += SVL;
-        svfloat32_t b0 = svld1_f32(pg, pB);  pB  += SVL;
+        svfloat32_t b0 = svld1_f32(pg, pB);
+        svfloat32_t b1 = svld1_f32(pg, pB + SVL); pB += 2*SVL;
 
-        // ANA DÖNGÜ
+        // MAIN LOOP
         for (size_t k = 0; k < K_curr - 1; k++) {
-            // k. adımın verileri ZATEN bir önceki döngüde (veya prologue'da) yüklendi!
-            // Şimdi k'nın matematiğini yaparken, araya k+1'in yüklemelerini (prefetch) saklıyoruz:
+            svmopa_za32_f32_m(0, pg, pg, a0, b0);  // top-left
+            svmopa_za32_f32_m(1, pg, pg, a0, b1);  // top-right
+            svfloat32_t next_a0 = svld1_f32(pg, pA0); pA0 += SVL;
 
-            svmopa_za32_f32_m(0, pg, pg, a0, b0);
-            svfloat32_t next_a0 = svld1_f32(pg, pA0); pA0 += SVL; // k+1 için yükle
+            svmopa_za32_f32_m(2, pg, pg, a1, b0);  // bottom-left
+            svfloat32_t next_b0 = svld1_f32(pg, pB);
 
-            svmopa_za32_f32_m(1, pg, pg, a1, b0);
-            svfloat32_t next_a1 = svld1_f32(pg, pA1); pA1 += SVL; // k+1 için yükle
+            svmopa_za32_f32_m(3, pg, pg, a1, b1);  // bottom-right
+            svfloat32_t next_a1 = svld1_f32(pg, pA1); pA1 += SVL;
+            svfloat32_t next_b1 = svld1_f32(pg, pB + SVL); pB += 2*SVL;
 
-            svmopa_za32_f32_m(2, pg, pg, a2, b0);
-            svfloat32_t next_a2 = svld1_f32(pg, pA2); pA2 += SVL; // k+1 için yükle
-
-            svmopa_za32_f32_m(3, pg, pg, a3, b0);
-            svfloat32_t next_a3 = svld1_f32(pg, pA3); pA3 += SVL; // k+1 için yükle
-            svfloat32_t next_b0 = svld1_f32(pg, pB);  pB  += SVL; // k+1 için yükle
-
-            // Verileri bir sonraki döngü için güncelle
             a0 = next_a0;
             a1 = next_a1;
-            a2 = next_a2;
-            a3 = next_a3;
             b0 = next_b0;
+            b1 = next_b1;
         }
 
-        // EPILOGUE: Döngüden çıkınca son adımın (K_curr - 1) matematiğini tamamla
+        // EPILOGUE: last k iteration
         svmopa_za32_f32_m(0, pg, pg, a0, b0);
-        svmopa_za32_f32_m(1, pg, pg, a1, b0);
-        svmopa_za32_f32_m(2, pg, pg, a2, b0);
-        svmopa_za32_f32_m(3, pg, pg, a3, b0);
+        svmopa_za32_f32_m(1, pg, pg, a0, b1);
+        svmopa_za32_f32_m(2, pg, pg, a1, b0);
+        svmopa_za32_f32_m(3, pg, pg, a1, b1);
 
         svfloat32_t inactive = svundef_f32();
 
-        // Store each ZA tile back into C, accumulating with existing values.
-        // Tile index must be a compile-time constant — unroll manually.
-        #define STORE_ZA_TILE(TILE)                                              \
-        do {                                                                     \
-            float* C_tile = C + (TILE) * SVL * wide_of_C;                        \
-            for (int i = 0; i < (int)SVL; i++) {                                 \
-                svfloat32_t result = svread_hor_za32_f32_m(inactive, pg, TILE, i);\
-                float* ptr = C_tile + i * wide_of_C;                             \
-                svfloat32_t existing = svld1_f32(pg, ptr);                       \
-                svst1_f32(pg, ptr, svadd_f32_x(pg, existing, result));           \
-            }                                                                    \
+        // Store ZA tiles back into C, accumulating with existing values.
+        // ZA0 → C[0..SVL, 0..SVL]        (top-left)
+        // ZA1 → C[0..SVL, SVL..2*SVL]    (top-right)
+        // ZA2 → C[SVL..2*SVL, 0..SVL]    (bottom-left)
+        // ZA3 → C[SVL..2*SVL, SVL..2*SVL](bottom-right)
+
+        #define STORE_ZA_TILE_2x2(TILE, ROW_OFF, COL_OFF)                        \
+        do {                                                                      \
+            float* C_tile = C + (ROW_OFF) * wide_of_C + (COL_OFF);               \
+            for (int i = 0; i < (int)SVL; i++) {                                  \
+                svfloat32_t result = svread_hor_za32_f32_m(inactive, pg, TILE, i); \
+                float* ptr = C_tile + i * wide_of_C;                              \
+                svfloat32_t existing = svld1_f32(pg, ptr);                        \
+                svst1_f32(pg, ptr, svadd_f32_x(pg, existing, result));            \
+            }                                                                     \
         } while (0)
 
-        STORE_ZA_TILE(0);
-        STORE_ZA_TILE(1);
-        STORE_ZA_TILE(2);
-        STORE_ZA_TILE(3);
+        STORE_ZA_TILE_2x2(0, 0,   0);     // top-left
+        STORE_ZA_TILE_2x2(1, 0,   SVL);   // top-right
+        STORE_ZA_TILE_2x2(2, SVL, 0);     // bottom-left
+        STORE_ZA_TILE_2x2(3, SVL, SVL);   // bottom-right
 
-        #undef STORE_ZA_TILE
+        #undef STORE_ZA_TILE_2x2
     }
 
     // =========================================================================
@@ -313,17 +309,22 @@ namespace SMEKernels {
                             size_t M, size_t K, size_t N) {
         const size_t SVL = static_cast<size_t>(svcntsw());
 
-        constexpr size_t M_tile = 64;
+        constexpr size_t M_tile = 256;
         constexpr size_t K_tile = 2048;
-        constexpr size_t N_tile = 1024;
+        constexpr size_t N_tile = 512;
+
+        const size_t M_step = 2 * SVL;
+        const size_t N_step = 2 * SVL;
 
         AlignedBuffer packed_A(static_cast<float*>(
             std::aligned_alloc(64, M_tile * K_tile * sizeof(float))));
         AlignedBuffer packed_B(static_cast<float*>(
             std::aligned_alloc(64, K_tile * N_tile * sizeof(float))));
 
-        const size_t M_step = 4 * SVL;
-        const size_t N_step = 1 * SVL;
+        // Scratch buffer for edge tiles: full 2*SVL × 2*SVL
+        // Used when remaining rows or cols < 2*SVL
+        AlignedBuffer C_scratch(static_cast<float*>(
+            std::aligned_alloc(64, M_step * N_step * sizeof(float))));
 
         for (size_t n = 0; n < N; n += N_tile) {
             size_t nc = std::min(N_tile, N - n);
@@ -336,12 +337,48 @@ namespace SMEKernels {
                     pack_A_streaming(A, packed_A.get(), mc, kc, m, k, K);
 
                     for (size_t jr = 0; jr < nc; jr += N_step) {
+                        size_t n_rem = nc - jr;
                         for (size_t ir = 0; ir < mc; ir += M_step) {
-                            micro_kernel_4x1(
-                                packed_A.get() + ir * kc,
-                                packed_B.get() + jr * kc,
-                                C + (m + ir) * N + (n + jr),
-                                kc, N);
+                            size_t m_rem = mc - ir;
+
+                            bool m_tail = m_rem < M_step;
+                            bool n_tail = n_rem < N_step;
+
+                            if (!m_tail && !n_tail) {
+                                // Full tile — write directly into C
+                                micro_kernel_2x2(
+                                    packed_A.get() + ir * kc,
+                                    packed_B.get() + (jr / N_step) * kc * N_step,
+                                    C + (m + ir) * N + (n + jr),
+                                    kc, N);
+                            } else {
+                                // Edge tile — compute into scratch, scatter valid part to C
+                                size_t rows = std::min(m_rem, M_step);
+                                size_t cols = std::min(n_rem, N_step);
+
+                                // Zero scratch with SVE stores (avoids __arm_sc_memset)
+                                {
+                                    svbool_t pg_z = svptrue_b32();
+                                    svfloat32_t zero = svdup_f32(0.0f);
+                                    float* zp = C_scratch.get();
+                                    for (size_t i = 0; i < M_step * N_step; i += SVL)
+                                        svst1_f32(pg_z, zp + i, zero);
+                                }
+
+                                micro_kernel_2x2(
+                                    packed_A.get() + ir * kc,
+                                    packed_B.get() + (jr / N_step) * kc * N_step,
+                                    C_scratch.get(),
+                                    kc, N_step);
+
+                                // Scatter valid rows × cols back into C
+                                float* C_dst = C + (m + ir) * N + (n + jr);
+                                const float* src = C_scratch.get();
+                                for (size_t row = 0; row < rows; row++) {
+                                    for (size_t col = 0; col < cols; col++)
+                                        C_dst[row * N + col] += src[row * N_step + col];
+                                }
+                            }
                         }
                     }
                 }
@@ -349,4 +386,4 @@ namespace SMEKernels {
         }
     }
 
-} // namespace SMEKernels
+} // namespace SMEKernels2x2

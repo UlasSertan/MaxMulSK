@@ -223,6 +223,8 @@ int main() {
 
     // --- SME tests ---
     SMETest::run();
+    SMETest::run_2x2();
+    SMETest::run_comparison();
 
     return 0;
 }
