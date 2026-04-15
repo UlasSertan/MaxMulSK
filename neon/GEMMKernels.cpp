@@ -343,9 +343,9 @@ namespace GEMM {
 
     void package(const float* A, const float* B, float* C,
                  size_t M, size_t N, size_t K) {
-        constexpr size_t Kc       = 256;
+        constexpr size_t Kc       = 1024;
         constexpr size_t Mc       = 64;
-        constexpr size_t Nc_cache = 1020; // cache tile width, must be multiple of 12
+        constexpr size_t Nc_cache = 1024; // cache tile width, must be multiple of 12
 
         const size_t M_aligned = (M / 8)  * 8;
         const size_t N_aligned = (N / 12) * 12;

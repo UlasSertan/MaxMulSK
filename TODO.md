@@ -83,6 +83,7 @@ for (size_t i = 0; i < M_step * N_step; i += SVL)
 1. Update README.md and BENCHMARK.md where we claim 98% of theoretical limit and make it 96%, and check if our tests are performed on 4 GHz or 4.4 GHz (4.4GHz would make percentage 88%)
 2. Optimize SME kernel — explore tiling, N-tail handling, threading
 3. Benchmark SME vs NEON vs Accelerate (single-thread and multi-thread)
+4. Solve accumulator errors in big matricies like 4096^3 via ((A + B) + (C + D) instead of A + B + C + D)
 4. Rust scheduling layer — heterogeneous work distribution (P-core vs E-core tile sizing)
 5. During spare time, do A/B testing for L1 cache misses in A-inner packing and B-inner packing in NEON
 6. IF AND ONLY IF EVERYTHING IS DONE explore some different kernel sizes
