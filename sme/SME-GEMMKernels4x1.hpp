@@ -2,7 +2,7 @@
 
 #include <cstddef>
 
-namespace SMEKernels {
+namespace SMEKernels4x1 {
 
     // =========================================================================
     // PACKING (Streaming Mode)
@@ -31,4 +31,4 @@ namespace SMEKernels {
     void run_multiplication(const float* A, const float* B, float* C,
                             size_t M, size_t K, size_t N);
 
-} // namespace SMEKernels
+} // namespace SMEKernels4x1

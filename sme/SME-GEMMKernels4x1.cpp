@@ -1,4 +1,4 @@
-#include "SME-GEMMKernels.hpp"
+#include "SME-GEMMKernels4x1.hpp"
 
 #include <arm_sme.h>
 #include <arm_sve.h>
@@ -8,10 +8,12 @@
 
 #define RESTRICT __restrict__
 
-namespace SMEKernels {
+namespace SMEKernels4x1 {
 
     // =========================================================================
-    // PACK A  (M x K) → panel-major, transposed, SVL-wide columns
+    // PACK A  (M x K) → 4-panel interleaved layout
+    // Layout per k-step: [panel0_SVL | panel1_SVL | panel2_SVL | panel3_SVL]
+    // Micro-kernel reads all 4 panels with a single svld1_f32_x4 per k-step
     // =========================================================================
     __attribute__((noinline))
     void pack_A_streaming(const float* A, float* packed_A,
@@ -19,15 +21,14 @@ namespace SMEKernels {
                           size_t curr_row, size_t curr_col, size_t K) __arm_streaming {
         const size_t SVL = static_cast<size_t>(svcntsw());
         const size_t K_full = (K_curr / SVL) * SVL;
-        size_t m = 0;
+        const size_t GS = 4 * SVL; // group stride: 4 panels interleaved per k-step
 
-        // Predicates to handle tail cases
         const svbool_t pg = svptrue_b32();
         const svbool_t pfalse = svpfalse_b();
 
-        for (m; m < M_curr; m += SVL) {
-            float* panel_base = packed_A + (m / SVL) * (K_curr * SVL);
+        for (size_t m = 0; m < M_curr; m += SVL) {
             const float* row_base = A + (m + curr_row) * K + curr_col;
+            size_t p = m / SVL; // panel index within group (0-3)
             size_t k = 0;
             size_t rows_here = std::min(SVL, M_curr - m);
 
@@ -136,35 +137,35 @@ namespace SMEKernels {
                 svfloat32_t col14 = svzip1_f32(s3_3H, s3_7H);
                 svfloat32_t col15 = svzip2_f32(s3_3H, s3_7H);
 
-                float* out = panel_base + k * SVL;
-                svst1_f32(pg, out +  0*SVL, col0);
-                svst1_f32(pg, out +  1*SVL, col1);
-                svst1_f32(pg, out +  2*SVL, col2);
-                svst1_f32(pg, out +  3*SVL, col3);
-                svst1_f32(pg, out +  4*SVL, col4);
-                svst1_f32(pg, out +  5*SVL, col5);
-                svst1_f32(pg, out +  6*SVL, col6);
-                svst1_f32(pg, out +  7*SVL, col7);
-                svst1_f32(pg, out +  8*SVL, col8);
-                svst1_f32(pg, out +  9*SVL, col9);
-                svst1_f32(pg, out + 10*SVL, col10);
-                svst1_f32(pg, out + 11*SVL, col11);
-                svst1_f32(pg, out + 12*SVL, col12);
-                svst1_f32(pg, out + 13*SVL, col13);
-                svst1_f32(pg, out + 14*SVL, col14);
-                svst1_f32(pg, out + 15*SVL, col15);
+                // Store interleaved: col_i goes to k-step (k+i), panel slot p
+                // Stride between consecutive cols = GS (4*SVL), not SVL
+                float* out = packed_A + k * GS + p * SVL;
+                svst1_f32(pg, out +  0*GS, col0);
+                svst1_f32(pg, out +  1*GS, col1);
+                svst1_f32(pg, out +  2*GS, col2);
+                svst1_f32(pg, out +  3*GS, col3);
+                svst1_f32(pg, out +  4*GS, col4);
+                svst1_f32(pg, out +  5*GS, col5);
+                svst1_f32(pg, out +  6*GS, col6);
+                svst1_f32(pg, out +  7*GS, col7);
+                svst1_f32(pg, out +  8*GS, col8);
+                svst1_f32(pg, out +  9*GS, col9);
+                svst1_f32(pg, out + 10*GS, col10);
+                svst1_f32(pg, out + 11*GS, col11);
+                svst1_f32(pg, out + 12*GS, col12);
+                svst1_f32(pg, out + 13*GS, col13);
+                svst1_f32(pg, out + 14*GS, col14);
+                svst1_f32(pg, out + 15*GS, col15);
             }
 
-            // K tail: gather one column at a time via tmp buffer
-            // Zero tmp using SVE (avoids __arm_sc_memset from scalar loops)
+            // K tail: one column at a time via tmp buffer
             float tmp[16];
             svst1_f32(pg, tmp, svdup_f32(0.0f));
             for (; k < K_curr; k++) {
                 for (size_t row = 0; row < rows_here; row++)
                     tmp[row] = row_base[k + row * K];
                 svfloat32_t col_vec = svld1_f32(pg, tmp);
-                svst1_f32(pg, panel_base + k * SVL, col_vec);
-                // Re-zero only the lanes we wrote (avoid memset)
+                svst1_f32(pg, packed_A + k * GS + p * SVL, col_vec);
                 svst1_f32(pg, tmp, svdup_f32(0.0f));
             }
         }
@@ -223,60 +224,148 @@ namespace SMEKernels {
 
     // =========================================================================
     // MICRO KERNEL: (4*SVL) x SVL output tile using ZA accumulator
+    // K-unrolled by 4, software-pipelined: loads interleaved between svmopa
+    // to hide ZA accumulator write-after-write latency.
+    //
+    // Schedule per 4 k-steps (16 svmopa + 5 x4 loads):
+    //   PROLOGUE: load B x4 (4 b's), load A x4 (k+0)
+    //   group k+0: ZA0, ZA1, [load A(k+1)], ZA2, ZA3
+    //   group k+1: ZA0, ZA1, [load A(k+2)], ZA2, ZA3
+    //   group k+2: ZA0, ZA1, [load A(k+3)], ZA2, ZA3
+    //   group k+3: ZA0, ZA1, [load next B],  ZA2, ZA3
+    // Gap between same-tile writes: 4 slots (was 3 without interleaving)
     // =========================================================================
     __attribute__((noinline))
     void micro_kernel_4x1(float* RESTRICT packed_A, float* RESTRICT packed_B, float* RESTRICT C,
                           size_t K_curr, size_t wide_of_C) __arm_out("za") __arm_streaming {
         svzero_za();
         const size_t SVL = static_cast<size_t>(svcntsw());
-        svbool_t pg = svptrue_b32();
-        const size_t ps = SVL * K_curr;
+        const svbool_t pg = svptrue_b32();
+        const svcount_t pg4 = svptrue_c32();
+        const size_t GS = 4 * SVL; // group stride per k-step
 
-        // Pointerları döngü dışında hazırla
-        const float* pA0 = packed_A + 0*ps;
-        const float* pA1 = packed_A + 1*ps;
-        const float* pA2 = packed_A + 2*ps;
-        const float* pA3 = packed_A + 3*ps;
-        const float* pB  = packed_B;
+        const float* pA = packed_A;
+        const float* pB = packed_B;
 
-        // PROLOGUE: Döngüye girmeden ilk adımın (k=0) verilerini yükle
-        svfloat32_t a0 = svld1_f32(pg, pA0); pA0 += SVL;
-        svfloat32_t a1 = svld1_f32(pg, pA1); pA1 += SVL;
-        svfloat32_t a2 = svld1_f32(pg, pA2); pA2 += SVL;
-        svfloat32_t a3 = svld1_f32(pg, pA3); pA3 += SVL;
-        svfloat32_t b0 = svld1_f32(pg, pB);  pB  += SVL;
+        const size_t K_main = (K_curr / 4) * 4;
 
-        // ANA DÖNGÜ
-        for (size_t k = 0; k < K_curr - 1; k++) {
-            // k. adımın verileri ZATEN bir önceki döngüde (veya prologue'da) yüklendi!
-            // Şimdi k'nın matematiğini yaparken, araya k+1'in yüklemelerini (prefetch) saklıyoruz:
+        if (K_main >= 4) {
+            // PROLOGUE: load first B x4 and first A x4
+            svfloat32x4_t b_x4 = svld1_f32_x4(pg4, pB); pB += 4 * SVL;
+            svfloat32_t b0 = svget4_f32(b_x4, 0);
+            svfloat32_t b1 = svget4_f32(b_x4, 1);
+            svfloat32_t b2 = svget4_f32(b_x4, 2);
+            svfloat32_t b3 = svget4_f32(b_x4, 3);
 
-            svmopa_za32_f32_m(0, pg, pg, a0, b0);
-            svfloat32_t next_a0 = svld1_f32(pg, pA0); pA0 += SVL; // k+1 için yükle
+            svfloat32x4_t a_x4 = svld1_f32_x4(pg4, pA); pA += GS;
 
-            svmopa_za32_f32_m(1, pg, pg, a1, b0);
-            svfloat32_t next_a1 = svld1_f32(pg, pA1); pA1 += SVL; // k+1 için yükle
+            for (size_t k = 0; k < K_main - 4; k += 4) {
+                // Extract current A into named regs before overwriting a_x4
+                svfloat32_t a0 = svget4_f32(a_x4, 0);
+                svfloat32_t a1 = svget4_f32(a_x4, 1);
+                svfloat32_t a2 = svget4_f32(a_x4, 2);
+                svfloat32_t a3 = svget4_f32(a_x4, 3);
 
-            svmopa_za32_f32_m(2, pg, pg, a2, b0);
-            svfloat32_t next_a2 = svld1_f32(pg, pA2); pA2 += SVL; // k+1 için yükle
+                // group k+0: ZA0, ZA1, [load A(k+1)], ZA2, ZA3
+                svmopa_za32_f32_m(0, pg, pg, a0, b0);
+                svmopa_za32_f32_m(1, pg, pg, a1, b0);
+                a_x4 = svld1_f32_x4(pg4, pA); pA += GS;
+                svmopa_za32_f32_m(2, pg, pg, a2, b0);
+                svmopa_za32_f32_m(3, pg, pg, a3, b0);
 
-            svmopa_za32_f32_m(3, pg, pg, a3, b0);
-            svfloat32_t next_a3 = svld1_f32(pg, pA3); pA3 += SVL; // k+1 için yükle
-            svfloat32_t next_b0 = svld1_f32(pg, pB);  pB  += SVL; // k+1 için yükle
+                a0 = svget4_f32(a_x4, 0);
+                a1 = svget4_f32(a_x4, 1);
+                a2 = svget4_f32(a_x4, 2);
+                a3 = svget4_f32(a_x4, 3);
 
-            // Verileri bir sonraki döngü için güncelle
-            a0 = next_a0;
-            a1 = next_a1;
-            a2 = next_a2;
-            a3 = next_a3;
-            b0 = next_b0;
+                // group k+1: ZA0, ZA1, [load A(k+2)], ZA2, ZA3
+                svmopa_za32_f32_m(0, pg, pg, a0, b1);
+                svmopa_za32_f32_m(1, pg, pg, a1, b1);
+                a_x4 = svld1_f32_x4(pg4, pA); pA += GS;
+                svmopa_za32_f32_m(2, pg, pg, a2, b1);
+                svmopa_za32_f32_m(3, pg, pg, a3, b1);
+
+                a0 = svget4_f32(a_x4, 0);
+                a1 = svget4_f32(a_x4, 1);
+                a2 = svget4_f32(a_x4, 2);
+                a3 = svget4_f32(a_x4, 3);
+
+                // group k+2: ZA0, ZA1, [load A(k+3)], ZA2, ZA3
+                svmopa_za32_f32_m(0, pg, pg, a0, b2);
+                svmopa_za32_f32_m(1, pg, pg, a1, b2);
+                a_x4 = svld1_f32_x4(pg4, pA); pA += GS;
+                svmopa_za32_f32_m(2, pg, pg, a2, b2);
+                svmopa_za32_f32_m(3, pg, pg, a3, b2);
+
+                a0 = svget4_f32(a_x4, 0);
+                a1 = svget4_f32(a_x4, 1);
+                a2 = svget4_f32(a_x4, 2);
+                a3 = svget4_f32(a_x4, 3);
+
+                // group k+3: ZA0, ZA1, [load next B x4], ZA2, ZA3
+                svmopa_za32_f32_m(0, pg, pg, a0, b3);
+                svmopa_za32_f32_m(1, pg, pg, a1, b3);
+                b_x4 = svld1_f32_x4(pg4, pB); pB += 4 * SVL;
+                svmopa_za32_f32_m(2, pg, pg, a2, b3);
+                svmopa_za32_f32_m(3, pg, pg, a3, b3);
+
+                b0 = svget4_f32(b_x4, 0);
+                b1 = svget4_f32(b_x4, 1);
+                b2 = svget4_f32(b_x4, 2);
+                b3 = svget4_f32(b_x4, 3);
+                a_x4 = svld1_f32_x4(pg4, pA); pA += GS;
+            }
+
+            // EPILOGUE: last group of 4 (no next B/A to prefetch)
+            {
+                svfloat32_t a0 = svget4_f32(a_x4, 0);
+                svfloat32_t a1 = svget4_f32(a_x4, 1);
+                svfloat32_t a2 = svget4_f32(a_x4, 2);
+                svfloat32_t a3 = svget4_f32(a_x4, 3);
+
+                svmopa_za32_f32_m(0, pg, pg, a0, b0);
+                svmopa_za32_f32_m(1, pg, pg, a1, b0);
+                svmopa_za32_f32_m(2, pg, pg, a2, b0);
+                svmopa_za32_f32_m(3, pg, pg, a3, b0);
+
+                a_x4 = svld1_f32_x4(pg4, pA); pA += GS;
+                a0 = svget4_f32(a_x4, 0); a1 = svget4_f32(a_x4, 1);
+                a2 = svget4_f32(a_x4, 2); a3 = svget4_f32(a_x4, 3);
+
+                svmopa_za32_f32_m(0, pg, pg, a0, b1);
+                svmopa_za32_f32_m(1, pg, pg, a1, b1);
+                svmopa_za32_f32_m(2, pg, pg, a2, b1);
+                svmopa_za32_f32_m(3, pg, pg, a3, b1);
+
+                a_x4 = svld1_f32_x4(pg4, pA); pA += GS;
+                a0 = svget4_f32(a_x4, 0); a1 = svget4_f32(a_x4, 1);
+                a2 = svget4_f32(a_x4, 2); a3 = svget4_f32(a_x4, 3);
+
+                svmopa_za32_f32_m(0, pg, pg, a0, b2);
+                svmopa_za32_f32_m(1, pg, pg, a1, b2);
+                svmopa_za32_f32_m(2, pg, pg, a2, b2);
+                svmopa_za32_f32_m(3, pg, pg, a3, b2);
+
+                a_x4 = svld1_f32_x4(pg4, pA); pA += GS;
+                a0 = svget4_f32(a_x4, 0); a1 = svget4_f32(a_x4, 1);
+                a2 = svget4_f32(a_x4, 2); a3 = svget4_f32(a_x4, 3);
+
+                svmopa_za32_f32_m(0, pg, pg, a0, b3);
+                svmopa_za32_f32_m(1, pg, pg, a1, b3);
+                svmopa_za32_f32_m(2, pg, pg, a2, b3);
+                svmopa_za32_f32_m(3, pg, pg, a3, b3);
+            }
         }
 
-        // EPILOGUE: Döngüden çıkınca son adımın (K_curr - 1) matematiğini tamamla
-        svmopa_za32_f32_m(0, pg, pg, a0, b0);
-        svmopa_za32_f32_m(1, pg, pg, a1, b0);
-        svmopa_za32_f32_m(2, pg, pg, a2, b0);
-        svmopa_za32_f32_m(3, pg, pg, a3, b0);
+        // K TAIL: remaining 0-3 iterations, one at a time
+        for (size_t k = K_main; k < K_curr; k++) {
+            svfloat32x4_t a_x4 = svld1_f32_x4(pg4, pA); pA += GS;
+            svfloat32_t b0 = svld1_f32(pg, pB); pB += SVL;
+            svmopa_za32_f32_m(0, pg, pg, svget4_f32(a_x4, 0), b0);
+            svmopa_za32_f32_m(1, pg, pg, svget4_f32(a_x4, 1), b0);
+            svmopa_za32_f32_m(2, pg, pg, svget4_f32(a_x4, 2), b0);
+            svmopa_za32_f32_m(3, pg, pg, svget4_f32(a_x4, 3), b0);
+        }
 
         svfloat32_t inactive = svundef_f32();
 
@@ -349,4 +438,4 @@ namespace SMEKernels {
         }
     }
 
-} // namespace SMEKernels
+} // namespace SMEKernels4x1

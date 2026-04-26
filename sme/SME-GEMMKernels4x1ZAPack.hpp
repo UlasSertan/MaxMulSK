@@ -2,7 +2,7 @@
 
 #include <cstddef>
 
-namespace SMEKernels2x2 {
+namespace SMEKernels4x1ZAPack {
 
     // =========================================================================
     // PACKING (Streaming Mode)
@@ -17,10 +17,10 @@ namespace SMEKernels2x2 {
                           size_t curr_row, size_t N, size_t curr_col) __arm_streaming;
 
     // =========================================================================
-    // MICRO KERNEL — 2x2 tile layout (2*SVL rows × 2*SVL cols)
+    // MICRO KERNEL
     // =========================================================================
 
-    void micro_kernel_2x2(float* packed_A, float* packed_B, float* C,
+    void micro_kernel_4x1(float* packed_A, float* packed_B, float* C,
                           size_t K_curr, size_t wide_of_C) __arm_out("za") __arm_streaming;
 
     // =========================================================================
@@ -31,4 +31,4 @@ namespace SMEKernels2x2 {
     void run_multiplication(const float* A, const float* B, float* C,
                             size_t M, size_t K, size_t N);
 
-} // namespace SMEKernels2x2
+} // namespace SMEKernels4x1ZAPack
