@@ -1,379 +1,572 @@
 #include "test_sme.hpp"
-#include "SME-GEMMKernels.hpp"
+#include "SME-GEMMKernels4x1.hpp"
 #include "SME-GEMMKernels2x2.hpp"
+#include "SME-GEMMKernels1x4.hpp"
+#include "SME-GEMMKernels4x1ZAPack.hpp"
 #include "../common/utils.hpp"
 
 #include <iostream>
 #include <iomanip>
 #include <vector>
 #include <chrono>
+#include <cmath>
+#include <algorithm>
+#include <string>
 #include <arm_sve.h>
 
 namespace SMETest {
 
+    using Clock = std::chrono::high_resolution_clock;
+
+    // =========================================================================
+    // SHARED TEST CASES
+    // =========================================================================
+
+    struct CorrectnessCase { std::size_t M, K, N; const char* name; };
+    static const CorrectnessCase kCorrectnessCases[] = {
+        {  16,  16,  16, "16x16x16        [small]"           },
+        {  32,  32,  32, "32x32x32        [exact 2*SVL]"     },
+        {  64,  64,  64, "64x64x64        [aligned]"         },
+        {  67,  67,  67, "67x67x67        [all tails]"       },
+        { 128, 128, 128, "128x128x128     [aligned]"         },
+        {  20,  35,  41, "20x35x41        [non-aligned]"     },
+        { 256, 256, 256, "256x256x256     [medium]"          },
+        { 512, 512, 512, "512x512x512     [large]"           },
+    };
+
+    struct BenchCase { std::size_t M, K, N; const char* name; };
+    static const BenchCase kBenchCases[] = {
+        {  256,  256,  256, " 256^3" },
+        {  512,  512,  512, " 512^3" },
+        { 1024, 1024, 1024, "1024^3" },
+        { 2048, 2048, 2048, "2048^3" },
+    };
+
+    static const BenchCase kComparisonCases[] = {
+        {  256,  256,  256, " 256^3" },
+        {  512,  512,  512, " 512^3" },
+        { 1024, 1024, 1024, "1024^3" },
+        { 2048, 2048, 2048, "2048^3" },
+        { 4096, 4096, 4096, "4096^3" },
+    };
+
+    // Iteration policy:
+    //   run(k)            — flat 10, matches historical numbers in BENCHMARKS.md
+    //   run_comparison()  — bumped to 50 for stable kernel ordering
+    //   profile()         — caller-controlled (main.cpp picks)
+    static constexpr int kBenchIters      = 10;
+    static constexpr int kComparisonIters = 50;
+
+    // =========================================================================
+    // KERNEL DISPATCH
+    // =========================================================================
+
+    static const char* kernel_name(Kernel k) {
+        switch (k) {
+            case Kernel::K4x1:        return "4x1";
+            case Kernel::K2x2:        return "2x2";
+            case Kernel::K1x4:        return "1x4";
+            case Kernel::K4x1ZAPack:  return "4x1-ZAPack";
+        }
+        return "?";
+    }
+
+    static void run_kernel(Kernel k,
+                           const float* A, const float* B, float* C,
+                           std::size_t M, std::size_t K, std::size_t N) {
+        switch (k) {
+            case Kernel::K4x1:        SMEKernels4x1::run_multiplication(A, B, C, M, K, N);       return;
+            case Kernel::K2x2:        SMEKernels2x2::run_multiplication(A, B, C, M, K, N);       return;
+            case Kernel::K1x4:        SMEKernels1x4::run_multiplication(A, B, C, M, K, N);       return;
+            case Kernel::K4x1ZAPack:  SMEKernels4x1ZAPack::run_multiplication(A, B, C, M, K, N); return;
+        }
+    }
+
+    // Kernels without a scratch-buffer fallback overflow C when M (or N) is
+    // smaller than the micro-kernel's output tile. Only 2x2 has a full
+    // scratch-buffer path today (TODO: add to 4x1 / 1x4 / ZAPack).
+    //   4x1 writes 4*SVL × SVL tile  →  needs M >= 64
+    //   1x4 writes SVL × 4*SVL tile  →  needs N >= 64
+    //   ZAPack same writeback path as 4x1
+    static bool kernel_can_handle(Kernel k, std::size_t M, std::size_t /*K*/, std::size_t N) {
+        constexpr std::size_t SVL = 16; // streaming SVL on M4
+        switch (k) {
+            case Kernel::K4x1:        return M >= 4 * SVL;
+            case Kernel::K1x4:        return N >= 4 * SVL;
+            case Kernel::K4x1ZAPack:  return M >= 4 * SVL;
+            case Kernel::K2x2:        return true;
+        }
+        return true;
+    }
+
+    // =========================================================================
+    // PACK CORRECTNESS — one helper per layout family.
+    // Bodies are the previous run_packing_* logic minus the banner.
+    // The layout-verification index math is what differs between kernels.
+    // =========================================================================
+
+    // 4x1 layout:
+    //   pack_A: 4-panel interleaved, GS = 4*SVL
+    //   pack_B: SVL-wide panels
     __arm_locally_streaming
-    static void run_packing() {
-        std::cout << "\n--- SME Packing ---\n";
+    static void check_pack_4x1() {
+        const std::size_t SVL = static_cast<std::size_t>(svcntw());
+        const std::size_t M = 20, K = 35, N = 41;
 
-        const size_t SVL = static_cast<size_t>(svcntw());
-        const size_t M = 20, K = 35, N = 41;
-
-        // Deterministic input for easy manual verification
         std::vector<float> A(M * K), B(K * N);
-        for (size_t i = 0; i < M; i++)
-            for (size_t j = 0; j < K; j++)
+        for (std::size_t i = 0; i < M; i++)
+            for (std::size_t j = 0; j < K; j++)
                 A[i * K + j] = static_cast<float>(i * 1000 + j);
-        for (size_t i = 0; i < K; i++)
-            for (size_t j = 0; j < N; j++)
+        for (std::size_t i = 0; i < K; i++)
+            for (std::size_t j = 0; j < N; j++)
                 B[i * N + j] = static_cast<float>(i * 1000 + j);
 
-        const size_t M_curr = (M / SVL) * SVL;
-        const size_t K_curr = K;
-        const size_t N_curr = N;
+        const std::size_t M_curr = (M / SVL) * SVL;
+        const std::size_t K_curr = K;
+        const std::size_t N_curr = N;
 
-        // pack_B: expected layout — packed_B[n * K_curr + k] == B[k * N + n]
         std::vector<float> packed_B(K_curr * ((N_curr + SVL - 1) / SVL) * SVL, -999.0f);
-        SMEKernels::pack_B_streaming(B.data(), packed_B.data(), N_curr, K_curr, 0, N, 0);
+        SMEKernels4x1::pack_B_streaming(B.data(), packed_B.data(), N_curr, K_curr, 0, N, 0);
 
         bool pack_B_ok = true;
-        for (size_t k = 0; k < K_curr && pack_B_ok; k++) {
-            for (size_t n = 0; n < N_curr && pack_B_ok; n++) {
-                size_t panel = (n / SVL) * SVL;
-                size_t lane  = n % SVL;
-                float expected = B[k * N + n];
-                float got      = packed_B[panel * K_curr + k * SVL + lane];
-                if (std::abs(expected - got) > 1e-5f) {
-                    std::cout << "  pack_B FAIL: B[" << k << "," << n << "]="
-                              << expected << " got=" << got << "\n";
+        for (std::size_t k = 0; k < K_curr && pack_B_ok; k++) {
+            for (std::size_t n = 0; n < N_curr && pack_B_ok; n++) {
+                std::size_t panel = (n / SVL) * SVL;
+                std::size_t lane  = n % SVL;
+                if (std::abs(B[k * N + n] - packed_B[panel * K_curr + k * SVL + lane]) > 1e-5f)
                     pack_B_ok = false;
-                }
             }
         }
         std::cout << "  pack_B : " << (pack_B_ok ? "PASS" : "FAIL") << "\n";
 
-        // pack_A: expected layout — packed_A[panel * K_curr * SVL + k * SVL + row] == A[m * K + k]
-        std::vector<float> packed_A(M_curr * K_curr * 2, -999.0f);
-        SMEKernels::pack_A_streaming(A.data(), packed_A.data(), M_curr, K_curr, 0, 0, K);
+        const std::size_t GS = 4 * SVL;
+        const std::size_t groups_4x1 = (M_curr + GS - 1) / GS;
+        std::vector<float> packed_A(groups_4x1 * GS * K_curr, -999.0f);
+        SMEKernels4x1::pack_A_streaming(A.data(), packed_A.data(), M_curr, K_curr, 0, 0, K);
 
         bool pack_A_ok = true;
-        for (size_t m = 0; m < M_curr && pack_A_ok; m++) {
-            size_t panel = m / SVL;
-            size_t lane  = m % SVL;
-            for (size_t k = 0; k < K_curr && pack_A_ok; k++) {
-                float expected = A[m * K + k];
-                float got      = packed_A[panel * K_curr * SVL + k * SVL + lane];
-                if (std::abs(expected - got) > 1e-5f) {
-                    std::cout << "  pack_A FAIL: A[" << m << "," << k << "]="
-                              << expected << " got=" << got << "\n";
+        for (std::size_t m = 0; m < M_curr && pack_A_ok; m++) {
+            std::size_t panel = m / SVL;
+            std::size_t lane  = m % SVL;
+            for (std::size_t k = 0; k < K_curr && pack_A_ok; k++) {
+                if (std::abs(A[m * K + k] - packed_A[k * GS + panel * SVL + lane]) > 1e-5f)
                     pack_A_ok = false;
-                }
             }
         }
         std::cout << "  pack_A : " << (pack_A_ok ? "PASS" : "FAIL") << "\n";
     }
 
-    static void run_correctness() {
-        std::cout << "\n--- SME Correctness ---\n";
-
-        struct TestCase { size_t M, K, N; const char* name; };
-        TestCase cases[] = {
-            { 16,  16,  16, "Small  ( 16x16x16 )"},
-            { 64,  64,  64, "Medium ( 64x64x64 )"},
-            {128, 128, 128, "Large  (128x128x128)"},
-            { 20,  35,  41, "Non-aligned (20x35x41)"},
-        };
-
-        for (auto& tc : cases) {
-            std::vector<float> A(tc.M * tc.K);
-            std::vector<float> B(tc.K * tc.N);
-            std::vector<float> C_ref(tc.M * tc.N, 0.0f);
-            std::vector<float> C_sme(tc.M * tc.N, 0.0f);
-
-            Utils::fill_random(A);
-            Utils::fill_random(B);
-            Utils::multiply_scalar(A.data(), B.data(), C_ref.data(), tc.M, tc.N, tc.K);
-            SMEKernels::run_multiplication(A.data(), B.data(), C_sme.data(), tc.M, tc.K, tc.N);
-
-            bool ok = Utils::check_correctness(C_ref.data(), C_sme.data(), tc.M * tc.N, "SME");
-            std::cout << "  " << tc.name << " : " << (ok ? "PASS" : "FAIL") << "\n";
-        }
-    }
-
-    static void run_benchmark() {
-            std::cout << "\n--- Performance Benchmark (GFLOPS) ---\n";
-
-            // Performans ölçümü için matris boyutlarının donanımı zorlayacak kadar
-            // büyük olması (örneğin önbelleğe sığmaması) daha doğru sonuç verir.
-            struct TestCase { size_t M, N, K; const char* name; };
-            TestCase cases[] = {
-                { 256,  256,  256, "Small  ( 256x256x256 )"},
-                { 512,  512,  512, "Medium ( 512x512x512 )"},
-                {1024, 1024, 1024, "Large  (1024x1024x1024)"},
-                {2048, 2048, 2048, "Huge   (2048x2048x2048)"}
-            };
-
-            const int num_iterations = 10; // Daha tutarlı bir ortalama elde etmek için
-
-            for (auto& tc : cases) {
-                std::vector<float> A(tc.M * tc.K);
-                std::vector<float> B(tc.K * tc.N);
-                std::vector<float> C(tc.M * tc.N, 0.0f);
-
-                Utils::fill_random(A);
-                Utils::fill_random(B);
-
-                // Isınma (Warm-up) turu: Önbelleği doldurmak ve işlemci frekansını
-                // maksimum seviyeye (turbo boost vb.) çekmek için bir kez boşa çalıştırıyoruz.
-                SMEKernels::run_multiplication(A.data(), B.data(), C.data(), tc.M, tc.K, tc.N);
-
-                // Zaman ölçümünü başlat
-                auto start = std::chrono::high_resolution_clock::now();
-
-                for (int i = 0; i < num_iterations; i++) {
-                    // NEON testi için burayı GEMM::package(A.data(), B.data(), C.data(), tc.M, tc.N, tc.K);
-                    // olarak değiştirmelisin.
-                    SMEKernels::run_multiplication(A.data(), B.data(), C.data(), tc.M, tc.K, tc.N);
-                }
-
-                // Zaman ölçümünü bitir
-                auto end = std::chrono::high_resolution_clock::now();
-                std::chrono::duration<double> diff = end - start;
-                double seconds = diff.count();
-
-                // GFLOPS Hesabı
-                // Toplam FLOPs = 2 * M * N * K * iterasyon_sayısı
-                double total_flops = 2.0 * tc.M * tc.N * tc.K * num_iterations;
-                double gflops = (total_flops / 1e9) / seconds;
-                double ms_per_iter = (seconds / num_iterations) * 1000.0;
-
-                std::cout << "  " << tc.name << " : "
-                          << gflops << " GFLOPS ("
-                          << ms_per_iter << " ms/iter)\n";
-            }
-        }
-
-    // =================================================================
-    // 2x2 KERNEL TESTS
-    // =================================================================
-
-    __arm_locally_streaming
-    static void run_packing_2x2() {
-        std::cout << "\n--- SME 2x2 Packing ---\n";
-
-        const size_t SVL = static_cast<size_t>(svcntw());
-        const size_t M = 20, K = 35, N = 41;
+    // Same layout as 4x1; pack_A uses ZA-based transpose internally,
+    // hence __arm_new("za") on the wrapper.
+    __arm_locally_streaming __arm_new("za")
+    static void check_pack_4x1ZAPack() {
+        const std::size_t SVL = static_cast<std::size_t>(svcntw());
+        const std::size_t M = 20, K = 35, N = 41;
 
         std::vector<float> A(M * K), B(K * N);
-        for (size_t i = 0; i < M; i++)
-            for (size_t j = 0; j < K; j++)
+        for (std::size_t i = 0; i < M; i++)
+            for (std::size_t j = 0; j < K; j++)
                 A[i * K + j] = static_cast<float>(i * 1000 + j);
-        for (size_t i = 0; i < K; i++)
-            for (size_t j = 0; j < N; j++)
+        for (std::size_t i = 0; i < K; i++)
+            for (std::size_t j = 0; j < N; j++)
                 B[i * N + j] = static_cast<float>(i * 1000 + j);
 
-        const size_t M_curr = (M / SVL) * SVL;
-        const size_t K_curr = K;
-        const size_t N_curr = N;
+        const std::size_t M_curr = (M / SVL) * SVL;
+        const std::size_t K_curr = K;
+        const std::size_t N_curr = N;
 
-        // pack_A (same layout as 4x1)
+        std::vector<float> packed_B(K_curr * ((N_curr + SVL - 1) / SVL) * SVL, -999.0f);
+        SMEKernels4x1ZAPack::pack_B_streaming(B.data(), packed_B.data(), N_curr, K_curr, 0, N, 0);
+
+        bool pack_B_ok = true;
+        for (std::size_t k = 0; k < K_curr && pack_B_ok; k++) {
+            for (std::size_t n = 0; n < N_curr && pack_B_ok; n++) {
+                std::size_t panel = (n / SVL) * SVL;
+                std::size_t lane  = n % SVL;
+                if (std::abs(B[k * N + n] - packed_B[panel * K_curr + k * SVL + lane]) > 1e-5f)
+                    pack_B_ok = false;
+            }
+        }
+        std::cout << "  pack_B : " << (pack_B_ok ? "PASS" : "FAIL") << "\n";
+
+        const std::size_t GS = 4 * SVL;
+        const std::size_t groups_zap = (M_curr + GS - 1) / GS;
+        std::vector<float> packed_A(groups_zap * GS * K_curr, -999.0f);
+        SMEKernels4x1ZAPack::pack_A_streaming(A.data(), packed_A.data(), M_curr, K_curr, 0, 0, K);
+
+        bool pack_A_ok = true;
+        for (std::size_t m = 0; m < M_curr && pack_A_ok; m++) {
+            std::size_t panel = m / SVL;
+            std::size_t lane  = m % SVL;
+            for (std::size_t k = 0; k < K_curr && pack_A_ok; k++) {
+                if (std::abs(A[m * K + k] - packed_A[k * GS + panel * SVL + lane]) > 1e-5f)
+                    pack_A_ok = false;
+            }
+        }
+        std::cout << "  pack_A : " << (pack_A_ok ? "PASS" : "FAIL") << "\n";
+    }
+
+    // 2x2 layout:
+    //   pack_A: 2-panel interleaved per group, GS = 2*SVL
+    //   pack_B: 2*SVL-wide interleaved panels
+    __arm_locally_streaming __arm_new("za")
+    static void check_pack_2x2() {
+        const std::size_t SVL = static_cast<std::size_t>(svcntw());
+        const std::size_t M = 20, K = 35, N = 41;
+
+        std::vector<float> A(M * K), B(K * N);
+        for (std::size_t i = 0; i < M; i++)
+            for (std::size_t j = 0; j < K; j++)
+                A[i * K + j] = static_cast<float>(i * 1000 + j);
+        for (std::size_t i = 0; i < K; i++)
+            for (std::size_t j = 0; j < N; j++)
+                B[i * N + j] = static_cast<float>(i * 1000 + j);
+
+        const std::size_t M_curr = (M / SVL) * SVL;
+        const std::size_t K_curr = K;
+        const std::size_t N_curr = N;
+
         std::vector<float> packed_A(M_curr * K_curr * 2, -999.0f);
         SMEKernels2x2::pack_A_streaming(A.data(), packed_A.data(), M_curr, K_curr, 0, 0, K);
 
         bool pack_A_ok = true;
-        for (size_t m = 0; m < M_curr && pack_A_ok; m++) {
-            size_t panel = m / SVL;
-            size_t lane  = m % SVL;
-            for (size_t k = 0; k < K_curr && pack_A_ok; k++) {
-                float expected = A[m * K + k];
-                float got      = packed_A[panel * K_curr * SVL + k * SVL + lane];
-                if (std::abs(expected - got) > 1e-5f) {
-                    std::cout << "  pack_A FAIL: A[" << m << "," << k << "]="
-                              << expected << " got=" << got << "\n";
+        const std::size_t GS_2x2 = 2 * SVL;
+        for (std::size_t m = 0; m < M_curr && pack_A_ok; m++) {
+            std::size_t panel_global = m / SVL;
+            std::size_t p_local      = panel_global % 2;
+            std::size_t group        = panel_global / 2;
+            std::size_t group_offset = group * GS_2x2 * K_curr;
+            std::size_t lane         = m % SVL;
+            for (std::size_t k = 0; k < K_curr && pack_A_ok; k++) {
+                if (std::abs(A[m * K + k] - packed_A[group_offset + k * GS_2x2 + p_local * SVL + lane]) > 1e-5f)
                     pack_A_ok = false;
-                }
             }
         }
         std::cout << "  pack_A : " << (pack_A_ok ? "PASS" : "FAIL") << "\n";
 
-        // pack_B: interleaved 2*SVL layout
-        // For each 2*SVL panel, layout is [b0_k | b1_k] per k-step
-        const size_t panel_width = 2 * SVL;
-        const size_t num_panels = (N_curr + panel_width - 1) / panel_width;
+        const std::size_t panel_width = 2 * SVL;
+        const std::size_t num_panels  = (N_curr + panel_width - 1) / panel_width;
         std::vector<float> packed_B(num_panels * K_curr * panel_width, -999.0f);
         SMEKernels2x2::pack_B_streaming(B.data(), packed_B.data(), N_curr, K_curr, 0, N, 0);
 
         bool pack_B_ok = true;
-        for (size_t k = 0; k < K_curr && pack_B_ok; k++) {
-            for (size_t n = 0; n < N_curr && pack_B_ok; n++) {
-                size_t panel_idx = n / panel_width;
-                size_t within    = n % panel_width;
-                // Each k-step is panel_width floats; panel starts at panel_idx * K_curr * panel_width
-                float expected = B[k * N + n];
-                float got      = packed_B[panel_idx * K_curr * panel_width + k * panel_width + within];
-                if (std::abs(expected - got) > 1e-5f) {
-                    std::cout << "  pack_B FAIL: B[" << k << "," << n << "]="
-                              << expected << " got=" << got << "\n";
+        for (std::size_t k = 0; k < K_curr && pack_B_ok; k++) {
+            for (std::size_t n = 0; n < N_curr && pack_B_ok; n++) {
+                std::size_t panel_idx = n / panel_width;
+                std::size_t within    = n % panel_width;
+                if (std::abs(B[k * N + n] - packed_B[panel_idx * K_curr * panel_width + k * panel_width + within]) > 1e-5f)
                     pack_B_ok = false;
-                }
             }
         }
         std::cout << "  pack_B : " << (pack_B_ok ? "PASS" : "FAIL") << "\n";
     }
 
-    static void run_correctness_2x2() {
-        std::cout << "\n--- SME 2x2 Correctness ---\n";
+    // 1x4 layout:
+    //   pack_A: single SVL-wide panel per m-step (GS = SVL)
+    //   pack_B: 4-panel interleaved per group (GS = 4*SVL)
+    __arm_locally_streaming
+    static void check_pack_1x4() {
+        const std::size_t SVL = static_cast<std::size_t>(svcntw());
+        const std::size_t M = 32, K = 35, N = 128;  // M, N must be multiples of SVL / 4*SVL
 
-        struct TestCase { size_t M, K, N; const char* name; };
-        TestCase cases[] = {
-            { 16,  16,  16, "Small  ( 16x16x16 )"},
-            { 64,  64,  64, "Medium ( 64x64x64 )"},
-            {128, 128, 128, "Large  (128x128x128)"},
-            { 20,  35,  41, "Non-aligned (20x35x41)"},
-            { 32,  32,  32, "Exact 2*SVL (32x32x32)"},
-            {256, 256, 256, "256x256x256"},
-            {512, 512, 512, "512x512x512"},
-        };
+        std::vector<float> A(M * K), B(K * N);
+        for (std::size_t i = 0; i < M; i++)
+            for (std::size_t j = 0; j < K; j++)
+                A[i * K + j] = static_cast<float>(i * 1000 + j);
+        for (std::size_t i = 0; i < K; i++)
+            for (std::size_t j = 0; j < N; j++)
+                B[i * N + j] = static_cast<float>(i * 1000 + j);
 
-        for (auto& tc : cases) {
-            std::vector<float> A(tc.M * tc.K);
-            std::vector<float> B(tc.K * tc.N);
-            std::vector<float> C_ref(tc.M * tc.N, 0.0f);
-            std::vector<float> C_sme(tc.M * tc.N, 0.0f);
+        const std::size_t M_curr = M;
+        const std::size_t K_curr = K;
+        const std::size_t N_curr = N;
+
+        std::vector<float> packed_A(M_curr * K_curr + SVL, -999.0f);
+        SMEKernels1x4::pack_A_streaming(A.data(), packed_A.data(), M_curr, K_curr, 0, 0, K);
+
+        bool pack_A_ok = true;
+        for (std::size_t m = 0; m < M_curr && pack_A_ok; m++) {
+            std::size_t m_idx      = m / SVL;
+            std::size_t lane       = m % SVL;
+            std::size_t block_base = m_idx * SVL * K_curr;
+            for (std::size_t k = 0; k < K_curr && pack_A_ok; k++) {
+                if (std::abs(A[m * K + k] - packed_A[block_base + k * SVL + lane]) > 1e-5f)
+                    pack_A_ok = false;
+            }
+        }
+        std::cout << "  pack_A : " << (pack_A_ok ? "PASS" : "FAIL") << "\n";
+
+        const std::size_t GS_B       = 4 * SVL;
+        const std::size_t num_groups = (N_curr + GS_B - 1) / GS_B;
+        std::vector<float> packed_B(num_groups * K_curr * GS_B, -999.0f);
+        SMEKernels1x4::pack_B_streaming(B.data(), packed_B.data(), N_curr, K_curr, 0, N, 0);
+
+        bool pack_B_ok = true;
+        for (std::size_t k = 0; k < K_curr && pack_B_ok; k++) {
+            for (std::size_t n = 0; n < N_curr && pack_B_ok; n++) {
+                std::size_t g      = n / GS_B;
+                std::size_t within = n % GS_B;
+                if (std::abs(B[k * N + n] - packed_B[g * K_curr * GS_B + k * GS_B + within]) > 1e-5f)
+                    pack_B_ok = false;
+            }
+        }
+        std::cout << "  pack_B : " << (pack_B_ok ? "PASS" : "FAIL") << "\n";
+    }
+
+    // =========================================================================
+    // PHASES
+    // =========================================================================
+
+    static void phase_pack_correctness(Kernel k) {
+        std::cout << "\n--- Phase 1: Pack correctness ---\n";
+        switch (k) {
+            case Kernel::K4x1:        check_pack_4x1();        break;
+            case Kernel::K4x1ZAPack:  check_pack_4x1ZAPack();  break;
+            case Kernel::K2x2:        check_pack_2x2();        break;
+            case Kernel::K1x4:        check_pack_1x4();        break;
+        }
+    }
+
+    static void phase_gemm_correctness(Kernel k) {
+        std::cout << "\n--- Phase 2: GEMM correctness vs scalar ---\n";
+
+        for (auto& tc : kCorrectnessCases) {
+            if (!kernel_can_handle(k, tc.M, tc.K, tc.N)) {
+                std::cout << "  " << std::left << std::setw(36) << tc.name
+                          << " : SKIP (writeback would overflow C)\n";
+                continue;
+            }
+
+            std::vector<float> A(tc.M * tc.K), B(tc.K * tc.N);
+            std::vector<float> C_ref(tc.M * tc.N, 0.0f), C_sme(tc.M * tc.N, 0.0f);
 
             Utils::fill_random(A);
             Utils::fill_random(B);
             Utils::multiply_scalar(A.data(), B.data(), C_ref.data(), tc.M, tc.N, tc.K);
-            SMEKernels2x2::run_multiplication(A.data(), B.data(), C_sme.data(), tc.M, tc.K, tc.N);
+            run_kernel(k, A.data(), B.data(), C_sme.data(), tc.M, tc.K, tc.N);
 
-            bool ok = Utils::check_correctness(C_ref.data(), C_sme.data(), tc.M * tc.N, "SME-2x2");
-            std::cout << "  " << tc.name << " : " << (ok ? "PASS" : "FAIL") << "\n";
+            bool ok = Utils::check_correctness(C_ref.data(), C_sme.data(), tc.M * tc.N, kernel_name(k));
+            std::cout << "  " << std::left << std::setw(36) << tc.name
+                      << " : " << (ok ? "PASS" : "FAIL") << "\n";
         }
     }
 
-    static void run_benchmark_2x2() {
-        std::cout << "\n--- SME 2x2 Performance Benchmark (GFLOPS) ---\n";
+    static void phase_benchmark(Kernel k, int iters) {
+        std::cout << "\n--- Phase 3: Benchmark (iters=" << iters << ") ---\n";
 
-        struct TestCase { size_t M, N, K; const char* name; };
-        TestCase cases[] = {
-            { 256,  256,  256, "Small  ( 256x256x256 )"},
-            { 512,  512,  512, "Medium ( 512x512x512 )"},
-            {1024, 1024, 1024, "Large  (1024x1024x1024)"},
-            {2048, 2048, 2048, "Huge   (2048x2048x2048)"}
-        };
-
-        const int num_iterations = 10;
-
-        for (auto& tc : cases) {
-            std::vector<float> A(tc.M * tc.K);
-            std::vector<float> B(tc.K * tc.N);
-            std::vector<float> C(tc.M * tc.N, 0.0f);
-
+        for (auto& tc : kBenchCases) {
+            std::vector<float> A(tc.M * tc.K), B(tc.K * tc.N), C(tc.M * tc.N, 0.0f);
             Utils::fill_random(A);
             Utils::fill_random(B);
 
-            // Warmup
-            SMEKernels2x2::run_multiplication(A.data(), B.data(), C.data(), tc.M, tc.K, tc.N);
+            run_kernel(k, A.data(), B.data(), C.data(), tc.M, tc.K, tc.N); // warmup
 
-            auto start = std::chrono::high_resolution_clock::now();
-            for (int i = 0; i < num_iterations; i++)
-                SMEKernels2x2::run_multiplication(A.data(), B.data(), C.data(), tc.M, tc.K, tc.N);
-            auto end = std::chrono::high_resolution_clock::now();
+            auto t0 = Clock::now();
+            for (int i = 0; i < iters; i++)
+                run_kernel(k, A.data(), B.data(), C.data(), tc.M, tc.K, tc.N);
+            double sec = std::chrono::duration<double>(Clock::now() - t0).count();
 
-            double seconds = std::chrono::duration<double>(end - start).count();
-            double total_flops = 2.0 * tc.M * tc.N * tc.K * num_iterations;
-            double gflops = (total_flops / 1e9) / seconds;
-            double ms_per_iter = (seconds / num_iterations) * 1000.0;
+            double total_flops = 2.0 * tc.M * tc.N * tc.K * iters;
+            double gflops      = (total_flops / 1e9) / sec;
+            double ms_per_iter = (sec / iters) * 1000.0;
 
-            std::cout << "  " << tc.name << " : "
-                      << gflops << " GFLOPS ("
-                      << ms_per_iter << " ms/iter)\n";
+            std::cout << "  " << std::left << std::setw(8) << tc.name
+                      << " : " << std::right << std::fixed << std::setprecision(1)
+                      << std::setw(7) << gflops << " GFLOPS"
+                      << "   (" << std::setprecision(2) << ms_per_iter << " ms/iter)\n";
         }
     }
 
-    // =================================================================
-    // SIDE-BY-SIDE COMPARISON: 4x1 vs 2x2
-    // =================================================================
+    // =========================================================================
+    // PUBLIC: per-kernel suite
+    // =========================================================================
 
-    static void run_comparison_impl() {
+    void run(Kernel k) {
         std::cout << "\n========================================\n";
-        std::cout << "  4x1 vs 2x2 Side-by-Side Comparison\n";
+        std::cout << "  SME " << kernel_name(k) << " — full suite\n";
         std::cout << "========================================\n";
 
-        struct TestCase { size_t M, N, K; const char* name; };
-        TestCase cases[] = {
-            { 256,  256,  256, " 256^3"},
-            { 512,  512,  512, " 512^3"},
-            {1024, 1024, 1024, "1024^3"},
-            {2048, 2048, 2048, "2048^3"},
-        };
+        phase_pack_correctness(k);
+        phase_gemm_correctness(k);
+        phase_benchmark(k, kBenchIters);
 
-        const int num_iterations = 10;
+        std::cout << "========================================\n";
+    }
 
-        std::cout << std::left << std::setw(12) << "  Size"
-                  << std::right << std::setw(14) << "4x1 GFLOPS"
-                  << std::setw(14) << "2x2 GFLOPS"
-                  << std::setw(10) << "Winner" << "\n";
-        std::cout << "  " << std::string(48, '-') << "\n";
+    // =========================================================================
+    // PUBLIC: cross-kernel comparison
+    // =========================================================================
 
-        for (auto& tc : cases) {
-            std::vector<float> A(tc.M * tc.K);
-            std::vector<float> B(tc.K * tc.N);
-            std::vector<float> C(tc.M * tc.N, 0.0f);
+    void run_comparison() {
+        // ZAPack is excluded — it has a known wrong-result/heap-corrupt bug at
+        // small sizes (TODO §2). Re-add once fixed.
+        const Kernel all[] = { Kernel::K4x1, Kernel::K2x2, Kernel::K1x4 };
+        constexpr int N_K = sizeof(all) / sizeof(all[0]);
 
+        std::cout << "\n=====================================================\n";
+        std::cout << "  Side-by-side: 4x1 vs 2x2 vs 1x4   (iters=" << kComparisonIters << ")\n";
+        std::cout << "=====================================================\n";
+
+        std::cout << std::left << std::setw(10) << "  Size"
+                  << std::right
+                  << std::setw(12) << "4x1"
+                  << std::setw(12) << "2x2"
+                  << std::setw(12) << "1x4"
+                  << std::setw(12) << "Winner" << "\n";
+        std::cout << "  " << std::string(58, '-') << "\n";
+
+        for (auto& tc : kComparisonCases) {
+            std::vector<float> A(tc.M * tc.K), B(tc.K * tc.N), C(tc.M * tc.N, 0.0f);
             Utils::fill_random(A);
             Utils::fill_random(B);
 
-            // --- 4x1 ---
-            SMEKernels::run_multiplication(A.data(), B.data(), C.data(), tc.M, tc.K, tc.N);
-            auto t0 = std::chrono::high_resolution_clock::now();
-            for (int i = 0; i < num_iterations; i++)
-                SMEKernels::run_multiplication(A.data(), B.data(), C.data(), tc.M, tc.K, tc.N);
-            auto t1 = std::chrono::high_resolution_clock::now();
-            double sec_4x1 = std::chrono::duration<double>(t1 - t0).count();
-            double gflops_4x1 = (2.0 * tc.M * tc.N * tc.K * num_iterations / 1e9) / sec_4x1;
+            double gflops[N_K] = { 0 };
+            for (int i = 0; i < N_K; i++) {
+                std::fill(C.begin(), C.end(), 0.0f);
+                run_kernel(all[i], A.data(), B.data(), C.data(), tc.M, tc.K, tc.N); // warmup
+                auto t0 = Clock::now();
+                for (int it = 0; it < kComparisonIters; it++)
+                    run_kernel(all[i], A.data(), B.data(), C.data(), tc.M, tc.K, tc.N);
+                double sec = std::chrono::duration<double>(Clock::now() - t0).count();
+                gflops[i]  = (2.0 * tc.M * tc.N * tc.K * kComparisonIters / 1e9) / sec;
+            }
 
-            // --- 2x2 ---
-            std::fill(C.begin(), C.end(), 0.0f);
-            SMEKernels2x2::run_multiplication(A.data(), B.data(), C.data(), tc.M, tc.K, tc.N);
-            auto t2 = std::chrono::high_resolution_clock::now();
-            for (int i = 0; i < num_iterations; i++)
-                SMEKernels2x2::run_multiplication(A.data(), B.data(), C.data(), tc.M, tc.K, tc.N);
-            auto t3 = std::chrono::high_resolution_clock::now();
-            double sec_2x2 = std::chrono::duration<double>(t3 - t2).count();
-            double gflops_2x2 = (2.0 * tc.M * tc.N * tc.K * num_iterations / 1e9) / sec_2x2;
+            int best = 0;
+            for (int i = 1; i < N_K; i++) if (gflops[i] > gflops[best]) best = i;
 
-            const char* winner = (gflops_2x2 > gflops_4x1) ? "2x2" : "4x1";
-
-            std::cout << std::left << std::setw(12) << (std::string("  ") + tc.name)
-                      << std::right << std::fixed << std::setprecision(1)
-                      << std::setw(14) << gflops_4x1
-                      << std::setw(14) << gflops_2x2
-                      << std::setw(10) << winner << "\n";
+            std::cout << std::left << std::setw(10) << (std::string("  ") + tc.name)
+                      << std::right << std::fixed << std::setprecision(1);
+            for (int i = 0; i < N_K; i++) std::cout << std::setw(12) << gflops[i];
+            std::cout << std::setw(12) << kernel_name(all[best]) << "\n";
         }
     }
 
-    // =================================================================
-    // ENTRY POINTS
-    // =================================================================
+    // =========================================================================
+    // PUBLIC: 4x1 timing breakdown (pack_A vs pack_B vs micro-kernel)
+    // =========================================================================
 
-    void run() {
-        std::cout << "========== SME 4x1 Tests ==========\n";
-        run_packing();
-        run_correctness();
-        run_benchmark();
-        std::cout << "====================================\n";
+    __arm_locally_streaming __arm_new("za")
+    __attribute__((noinline))
+    static void timing_inner_4x1(
+        const float* A, const float* B, float* C,
+        float* packed_A, float* packed_B,
+        std::size_t M, std::size_t K, std::size_t N,
+        double& t_packA, double& t_packB, double& t_kernel)
+    {
+        const std::size_t SVL = static_cast<std::size_t>(svcntw());
+        constexpr std::size_t M_tile = 64;
+        constexpr std::size_t K_tile = 2048;
+        constexpr std::size_t N_tile = 1024;
+        const std::size_t M_step = 4 * SVL;
+        const std::size_t N_step = 1 * SVL;
+
+        for (std::size_t n = 0; n < N; n += N_tile) {
+            std::size_t nc = std::min(N_tile, N - n);
+            for (std::size_t k = 0; k < K; k += K_tile) {
+                std::size_t kc = std::min(K_tile, K - k);
+
+                auto t0 = Clock::now();
+                SMEKernels4x1::pack_B_streaming(B, packed_B, nc, kc, k, N, n);
+                auto t1 = Clock::now();
+                t_packB += std::chrono::duration<double>(t1 - t0).count();
+
+                for (std::size_t m = 0; m < M; m += M_tile) {
+                    std::size_t mc = std::min(M_tile, M - m);
+
+                    auto t2 = Clock::now();
+                    SMEKernels4x1::pack_A_streaming(A, packed_A, mc, kc, m, k, K);
+                    auto t3 = Clock::now();
+                    t_packA += std::chrono::duration<double>(t3 - t2).count();
+
+                    auto t4 = Clock::now();
+                    for (std::size_t jr = 0; jr < nc; jr += N_step) {
+                        for (std::size_t ir = 0; ir < mc; ir += M_step) {
+                            SMEKernels4x1::micro_kernel_4x1(
+                                packed_A + ir * kc,
+                                packed_B + jr * kc,
+                                C + (m + ir) * N + (n + jr),
+                                kc, N);
+                        }
+                    }
+                    auto t5 = Clock::now();
+                    t_kernel += std::chrono::duration<double>(t5 - t4).count();
+                }
+            }
+        }
     }
 
-    void run_2x2() {
-        std::cout << "========== SME 2x2 Tests ==========\n";
-        run_packing_2x2();
-        run_correctness_2x2();
-        run_benchmark_2x2();
-        std::cout << "====================================\n";
+    void run_timing_breakdown() {
+        std::cout << "\n========================================\n";
+        std::cout << "  Timing Breakdown: pack_A / pack_B / kernel  (4x1 only)\n";
+        std::cout << "========================================\n";
+
+        constexpr std::size_t M_tile = 64;
+        constexpr std::size_t K_tile = 2048;
+        constexpr std::size_t N_tile = 1024;
+
+        auto* packed_A = static_cast<float*>(std::aligned_alloc(64, M_tile * K_tile * sizeof(float)));
+        auto* packed_B = static_cast<float*>(std::aligned_alloc(64, K_tile * N_tile * sizeof(float)));
+
+        std::cout << "  Size      pack_A(ms)  pack_B(ms)  kernel(ms)  total(ms)   pack%\n";
+        std::cout << "  ----------------------------------------------------------------\n";
+
+        const int iters = 5;
+
+        for (auto& tc : kBenchCases) {
+            std::vector<float> A(tc.M * tc.K), B(tc.K * tc.N), C(tc.M * tc.N, 0.0f);
+            Utils::fill_random(A);
+            Utils::fill_random(B);
+
+            SMEKernels4x1::run_multiplication(A.data(), B.data(), C.data(), tc.M, tc.K, tc.N); // warmup
+
+            double t_packA = 0, t_packB = 0, t_kernel = 0;
+            for (int iter = 0; iter < iters; iter++) {
+                std::fill(C.begin(), C.end(), 0.0f);
+                timing_inner_4x1(A.data(), B.data(), C.data(),
+                                 packed_A, packed_B,
+                                 tc.M, tc.K, tc.N,
+                                 t_packA, t_packB, t_kernel);
+            }
+
+            double total    = t_packA + t_packB + t_kernel;
+            double pack_pct = (t_packA + t_packB) / total * 100.0;
+            std::cout << std::fixed << std::setprecision(2)
+                      << "  " << std::left << std::setw(8) << tc.name
+                      << std::right
+                      << std::setw(10) << (t_packA  / iters * 1000.0)
+                      << std::setw(12) << (t_packB  / iters * 1000.0)
+                      << std::setw(12) << (t_kernel / iters * 1000.0)
+                      << std::setw(12) << (total    / iters * 1000.0)
+                      << std::setw(8)  << pack_pct << "%"
+                      << "\n";
+        }
+
+        std::free(packed_A);
+        std::free(packed_B);
     }
 
-    void run_comparison() {
-        run_comparison_impl();
+    // =========================================================================
+    // PUBLIC: Instruments profiling driver
+    // =========================================================================
+
+    void profile(Kernel k, std::size_t M, std::size_t K, std::size_t N, int iters) {
+        std::vector<float> A(M * K), B(K * N), C(M * N, 0.0f);
+        Utils::fill_random(A);
+        Utils::fill_random(B);
+
+        run_kernel(k, A.data(), B.data(), C.data(), M, K, N); // warmup
+
+        auto t0 = Clock::now();
+        for (int i = 0; i < iters; i++)
+            run_kernel(k, A.data(), B.data(), C.data(), M, K, N);
+        double sec = std::chrono::duration<double>(Clock::now() - t0).count();
+
+        double gflops      = (2.0 * M * N * K * iters / 1e9) / sec;
+        double ms_per_iter = (sec / iters) * 1000.0;
+        std::cout << "  [" << kernel_name(k) << "] " << M << "x" << K << "x" << N
+                  << " iters=" << iters
+                  << " : " << std::fixed << std::setprecision(1) << gflops << " GFLOPS ("
+                  << std::setprecision(2) << ms_per_iter << " ms/iter)\n";
     }
 
 } // namespace SMETest

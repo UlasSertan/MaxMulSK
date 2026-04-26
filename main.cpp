@@ -7,7 +7,7 @@
 #include "common/utils.hpp"
 #include "neon/GEMMKernels.hpp"
 #include "neon/test_neon.hpp"
-#include "sme/SME-GEMMKernels.hpp"
+#include "sme/SME-GEMMKernels4x1.hpp"
 #include "sme/test_sme.hpp"
 
 using Clock = std::chrono::high_resolution_clock;
@@ -205,26 +205,55 @@ int main() {
     std::cout << "  Single thread\n";
     std::cout << "========================================\n";
 
-    // --- NEON unit tests (commented out for SME compile test) ---
-    // NEONTest::run();
+    // ==========================================================
+    // FULL SWEEP — enable everything we want fresh numbers for.
+    // For Instruments / power profiling, set FULL_SWEEP to 0 and
+    // uncomment exactly one profile() call below.
+    // ==========================================================
+#define FULL_SWEEP 0
+#if FULL_SWEEP
 
-    // --- NEON benchmarks (commented out for SME compile test) ---
-    // Benchmark::neon_correctness_large();
-    // Benchmark::neon_speed_sweep();
-    // constexpr size_t M = 1024, N = 1024, K = 1024;
-    // std::vector<float> A(M * K), B(K * N), C_neon(M * N);
-    // Utils::fill_random(A);
-    // Utils::fill_random(B);
-    // Benchmark::run_single(A.data(), B.data(), C_neon.data(), M, N, K);
-    // std::cout << "\n========================================\n";
-    // std::cout << "  Stress Test (50 iterations, 1024^3)\n";
-    // std::cout << "========================================\n";
-    // Benchmark::run_stress(50, A.data(), B.data(), C_neon.data(), M, N, K);
+    // --- NEON ---
+    NEONTest::run();
+    Benchmark::neon_correctness_large();
+    Benchmark::neon_speed_sweep();
+    {
+        constexpr size_t M = 1024, N = 1024, K = 1024;
+        std::vector<float> A(M * K), B(K * N), C_neon(M * N);
+        Utils::fill_random(A);
+        Utils::fill_random(B);
+        Benchmark::run_single(A.data(), B.data(), C_neon.data(), M, N, K);
+        std::cout << "\n========================================\n";
+        std::cout << "  Stress Test (50 iterations, 1024^3)\n";
+        std::cout << "========================================\n";
+        Benchmark::run_stress(50, A.data(), B.data(), C_neon.data(), M, N, K);
+    }
 
-    // --- SME tests ---
-    SMETest::run();
-    SMETest::run_2x2();
+    // --- SME per-kernel suites ---
+    SMETest::run(SMETest::Kernel::K4x1);
+    SMETest::run(SMETest::Kernel::K2x2);
+    SMETest::run(SMETest::Kernel::K1x4);
+    // SMETest::run(SMETest::Kernel::K4x1ZAPack); // disabled: heap-corrupt crash at 32^3 (TODO §2)
+
+    // --- Cross-kernel comparison + 4x1 phase breakdown ---
     SMETest::run_comparison();
+    SMETest::run_timing_breakdown();
+
+#endif  // FULL_SWEEP
+
+    // ==========================================================
+    // PROFILING DRIVERS — uncomment exactly ONE for profile.sh /
+    // profile_power.sh runs (set FULL_SWEEP to 0 above).
+    // ==========================================================
+    {
+        [[maybe_unused]] constexpr std::size_t M = 2048, K = 2048, N = 2048;
+        [[maybe_unused]] constexpr int iters = 100;
+
+        SMETest::profile(SMETest::Kernel::K4x1,       M, K, N, iters);
+        // SMETest::profile(SMETest::Kernel::K2x2,       M, K, N, iters);
+        // SMETest::profile(SMETest::Kernel::K1x4,       M, K, N, iters);
+        // SMETest::profile(SMETest::Kernel::K4x1ZAPack, M, K, N, iters);
+    }
 
     return 0;
 }

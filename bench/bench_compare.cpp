@@ -26,8 +26,9 @@
 #include "../neon/GEMMKernels.hpp"
 
 // Our SME Kernel
-#include "../sme/SME-GEMMKernels.hpp"     // 4x1 versiyonu
-#include "../sme/SME-GEMMKernels2x2.hpp"  // 2x2 versiyonu
+#include "../sme/SME-GEMMKernels4x1.hpp"       // 4x1 versiyonu
+#include "../sme/SME-GEMMKernels2x2.hpp"       // 2x2 versiyonu
+#include "../sme/SME-GEMMKernels4x1ZAPack.hpp" // 4x1 with ZA-based pack_A
 
 #include <omp.h>
 
@@ -166,9 +167,15 @@ int main() {
     // Mevcut std::cout << std::left << std::setw(W_SIZE) ... satırını şununla değiştir:
     std::cout << std::left << std::setw(W_SIZE) << "Size (MxKxN)"
               << std::setw(W_TAG) << "Tag";
-    hdr("NEON GF"); hdr("SME 4x1"); hdr("SME 2x2"); hdr("Accel GF"); hdr("OBlas GF");
+    hdr("NEON GF"); hdr("SME 4x1"); hdr("SME 4x1 ZP"); hdr("SME 2x2"); hdr("Accel GF"); hdr("OBlas GF");
     std::cout << std::right << std::setw(9) << "MaxDiff\n";
-    std::cout << std::string(W_SIZE + W_TAG + W_NUM * 5 + 9, '-') << "\n";
+    std::cout << std::string(W_SIZE + W_TAG + W_NUM * 6 + 9, '-') << "\n";
+
+    // SME 4x1 / ZAPack micro-kernels emit a fixed 4*SVL × SVL output tile per
+    // call. For M < 4*SVL (= 64 on M4) tiles 1..3 land beyond C[M*N) and corrupt
+    // the heap. Pad SME C buffers to absorb the overrun. TODO §0/§2: add a
+    // scratch-buffer fallback to 4x1/ZAPack so this isn't needed.
+    constexpr size_t SME_TILE_M = 64;
 
     for (const auto& c : cases) {
         const int iters = iters_for(std::max({c.M, c.N, c.K}));
@@ -178,24 +185,33 @@ int main() {
         fill_random(A);
         fill_random(B);
 
+        const size_t sme_C_floats = std::max(c.M, SME_TILE_M) * c.N;
 
         // A ve B dolduktan sonra, NEON ölçümünün hemen altına ekle:
 
         // SME 4x1 Ölçümü
-        std::vector<float> C_sme41(c.M * c.N, 0.0f);
+        std::vector<float> C_sme41(sme_C_floats, 0.0f);
         double ms_sme41 = bench([&]{
-            SMEKernels::run_multiplication(A.data(), B.data(), C_sme41.data(), c.M, c.K, c.N);
+            SMEKernels4x1::run_multiplication(A.data(), B.data(), C_sme41.data(), c.M, c.K, c.N);
         }, iters);
 
-        // SME 2x2 Ölçümü
-        std::vector<float> C_sme22(c.M * c.N, 0.0f);
+        // SME 4x1 ZAPack Ölçümü (pack_A uses ZA horizontal-write / vertical-read transpose)
+        std::vector<float> C_sme41zp(sme_C_floats, 0.0f);
+        double ms_sme41zp = bench([&]{
+            SMEKernels4x1ZAPack::run_multiplication(A.data(), B.data(), C_sme41zp.data(), c.M, c.K, c.N);
+        }, iters);
+
+        // SME 2x2 Ölçümü (has scratch-buffer fallback, doesn't need padding,
+        // but use the same buffer size for consistency)
+        std::vector<float> C_sme22(sme_C_floats, 0.0f);
         double ms_sme22 = bench([&]{
             SMEKernels2x2::run_multiplication(A.data(), B.data(), C_sme22.data(), c.M, c.K, c.N);
         }, iters);
 
         // GFLOPS hesaplamalarını ekle:
-        double gf_sme41 = gflops(c.M, c.N, c.K, ms_sme41);
-        double gf_sme22 = gflops(c.M, c.N, c.K, ms_sme22);
+        double gf_sme41   = gflops(c.M, c.N, c.K, ms_sme41);
+        double gf_sme41zp = gflops(c.M, c.N, c.K, ms_sme41zp);
+        double gf_sme22   = gflops(c.M, c.N, c.K, ms_sme22);
         double ms_neon  = bench([&]{ GEMM::package(A.data(), B.data(), C_neon.data(),  c.M, c.N, c.K); }, iters);
         double ms_accel = bench([&]{ accel_sgemm(A.data(), B.data(), C_accel.data(), (int)c.M, (int)c.N, (int)c.K); }, iters);
         double ms_oblas = have_openblas
@@ -218,12 +234,13 @@ int main() {
                   << std::setw(W_TAG)  << c.tag
                   << std::right
                   << std::setw(W_NUM) << std::setprecision(1) << gf_neon
-                  << std::setw(W_NUM) << std::setprecision(1) << gf_sme41 // YENİ
-                  << std::setw(W_NUM) << std::setprecision(1) << gf_sme22 // YENİ
+                  << std::setw(W_NUM) << std::setprecision(1) << gf_sme41
+                  << std::setw(W_NUM) << std::setprecision(1) << gf_sme41zp
+                  << std::setw(W_NUM) << std::setprecision(1) << gf_sme22
                   << std::setw(W_NUM) << std::setprecision(1) << gf_accel
                   << std::setw(W_NUM) << std::setprecision(1) << gf_oblas
-                  << std::setw(W_NUM) << std::setprecision(3) << (gf_sme22 / gf_accel) // SME vs AMX oranı
-                  << std::setw(W_NUM) << std::setprecision(3) << (gf_sme22 / gf_oblas) // SME vs OpenBLAS
+                  << std::setw(W_NUM) << std::setprecision(3) << (gf_sme22 / gf_accel) // SME 2x2 vs AMX oranı
+                  << std::setw(W_NUM) << std::setprecision(3) << (gf_sme22 / gf_oblas) // SME 2x2 vs OpenBLAS
                   << std::setw(9)     << std::setprecision(5) << diff
                   << "\n";
     }
