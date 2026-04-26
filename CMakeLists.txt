@@ -72,3 +72,28 @@ target_link_libraries(bench_compare PRIVATE
         "-framework Accelerate"
         # OpenBLAS loaded at runtime via dlopen — no link-time dependency needed
 )
+
+# =============================================================================
+# bench_profile — single-library, single-size driver for profile.sh /
+# profile_power.sh runs against Accelerate or OpenBLAS.
+# =============================================================================
+add_executable(bench_profile
+        bench/bench_profile.cpp
+)
+
+target_compile_options(bench_profile PRIVATE
+        -O3
+        -mcpu=apple-m4
+        -march=armv8.4-a
+        -fopenmp
+)
+
+target_include_directories(bench_profile PRIVATE
+        /opt/homebrew/opt/libomp/include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(bench_profile PRIVATE
+        /opt/homebrew/opt/libomp/lib/libomp.dylib
+        "-framework Accelerate"
+)
