@@ -62,3 +62,10 @@ compile_commands.json
 .private/
 CLAUDE.md
 .claude
+
+# ============================================================
+# Instruments profiling
+# ============================================================
+*.tracetemplate
+*.trace
+traces/

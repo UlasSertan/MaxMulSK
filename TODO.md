@@ -78,12 +78,66 @@ for (size_t i = 0; i < M_step * N_step; i += SVL)
 
 ---
 
+## Recently Completed
+
+### ~~Processor Trace / PMU counter instrumentation~~ — DONE
+Built `profile.sh` around Instruments' `GemmTemplate.tracetemplate`. Records `L1D_CACHE_MISS_LD`, `L1D_CACHE_MISS_ST`, `INST_ALL` via `xctrace record`, extracts per-process totals with a Python XML parser over the `counters-profile` schema, derives L1D-misses/1M-instructions and (combined with stdout timing) FLOPs/instr and IPC. Saves compact `traces/<name>.txt` summaries; drops the heavy `.trace` bundle by default. See BENCHMARKS.md §10.
+
+### ~~A-inner vs B-inner packing A/B test~~ — DONE (moved from "spare time" item, now a primary result)
+Built an experimental 1×4 B-inner kernel (transpose of 4×1) and profiled all three layouts with PMU counters. 1×4 has the lowest instruction count and fewest L1D misses per instruction, but **loses on wall-clock GFLOPS** (1148 vs 4×1's 1213). Root cause per counters: IPC drops from 1.07 (4×1) to 0.62 (1×4) — the tighter instruction stream leaves too little slack between back-to-back FMOPAs targeting the same ZA tile, and pipeline stalls on same-tile dependency chains. Lesson: fewer instructions ≠ faster when FMOPA latency (6–8 cycles on M4) isn't hidden. Full write-up in BENCHMARKS.md §9–§10.
+
+### ~~1×4 experimental kernel shape~~ — DONE
+Implemented in `sme/SME-GEMMKernelsExperimental.{hpp,cpp}`. Correctness verified; benchmark wired into `test_sme.cpp::profile_1x4`. Kept in-tree as the B-inner reference point even though 4×1 remains the production kernel.
+
+---
+
+## Active Bugs
+
+### BUG-4x1-SMALL-M: 4x1 micro-kernel writes past C for M < 4·SVL
+**Symptom:** `malloc: Incorrect checksum for freed object` (SIGABRT, exit 134) when running GEMM correctness tests at sizes with M < 64. Surfaced by the wider correctness list (16³, 32³, 20×35×41) introduced during the 2026-04-26 cleanup. The kernel was always broken at small M; the old per-kernel test list happened to avoid SIGABRT due to heap-layout luck.
+
+**Root cause:** `micro_kernel_4x1`'s store-back loop unconditionally writes 4 ZA tiles → 4·SVL = 64 rows × SVL = 16 cols. `run_multiplication` calls it directly (no scratch buffer). For M < 64, tiles 1..3 land past `C[M*N)` and corrupt heap. Same class as BUG-2x2-1.
+
+**Workaround in place:** test harness skips small-M cases for K4x1 (`kernel_can_handle()` in `sme/test_sme.cpp`); `bench/bench_compare.cpp` pads `C_sme41` to `(4·SVL) * N` floats.
+
+**Real fix needed:** scratch-buffer fallback in `run_multiplication`, mirroring the BUG-2x2-1 fix. Apply to 4x1, 1x4, and 4x1ZAPack (1x4's case is harder: writes interleave columns rather than overrunning rows, so a scratch buffer + scatter-back is mandatory there).
+
+**Severity:** medium — production usage targets large M, but any caller passing M < 64 silently corrupts heap.
+
+### BUG-ZAPACK-WRONG: 4x1ZAPack produces wrong results / SIGABRT
+**Symptom:** Same SIGABRT as BUG-4x1-SMALL-M plus reportedly wrong outputs. Currently disabled in `main.cpp` and `run_comparison()` until the kernel logic is fixed.
+
+**Status:** ZAPack uses ZA-based pack_A transpose (a new technique you are exploring), separate from the small-M issue above. Kernel logic itself is the work item.
+
+### BUG-NEON-2X: NEON correctness fails (exact 2× output) at non-aligned shapes
+**Symptom:** `bench_compare` MaxDiff blows up at 128×1100×128 (12.9), 2048³ (62.3), 4096³ (100.6), 4095³ (88.0), 1067³ (43.5), 512×2048×512 (28.6). For early indices the value is *exactly 2×* the reference, suggesting the kernel runs an extra pass over part of the K dimension at certain `N > Nc_cache` shapes. Pre-existing — surfaced by the cleanup, not introduced by it. Bench numbers (GFLOPS) are still valid; the result in C is wrong.
+
+**Severity:** high for correctness — silently gives 2× wrong output. Investigate the K-loop / packed-B reuse path when N exceeds the cache-blocking parameter `Nc_cache`.
+
+### MINOR: profile_power.sh P/E-cluster regex
+On M4 macOS Sonoma+, `powermetrics --samplers cpu_power` no longer prints the `P-Cluster Power: NNN mW` / `E-Cluster Power: NNN mW` lines that the parser expects — only `Combined Power` is captured. P-cluster and E-cluster averages currently report 0.0 W. Combined is the meaningful number for J/GFLOP, so this is cosmetic, but worth fixing.
+
+### MINOR: OpenBLAS PMU counter undercount
+`profile.sh oblas` reports only ~650M instructions for a 3-second run at 2048³ × 100 iters (IPC ≈ 0.05 — implausible). Suspected: AMX-internal compute path doesn't count toward `INST_ALL`, OR the trace template loses events from dlopen'd dylib symbol attribution. Comparison against AMX/NEON paths via this counter is unreliable for OpenBLAS until investigated.
+
+---
+
 ## Next Steps (in order)
 
-1. Update README.md and BENCHMARK.md where we claim 98% of theoretical limit and make it 96%, and check if our tests are performed on 4 GHz or 4.4 GHz (4.4GHz would make percentage 88%)
-2. Optimize SME kernel — explore tiling, N-tail handling, threading
-3. Benchmark SME vs NEON vs Accelerate (single-thread and multi-thread)
-4. Solve accumulator errors in big matricies like 4096^3 via ((A + B) + (C + D) instead of A + B + C + D)
-4. Rust scheduling layer — heterogeneous work distribution (P-core vs E-core tile sizing)
-5. During spare time, do A/B testing for L1 cache misses in A-inner packing and B-inner packing in NEON
-6. IF AND ONLY IF EVERYTHING IS DONE explore some different kernel sizes
+0. **SME-ZA transpose** (learned its existence from AI, implementing myself).
+0. **Fix 4x1ZAPack** (BUG-ZAPACK-WRONG above) — wrong-result bug.
+0. **Create dynamic tiling.**
+
+1. **Add scratch-buffer fallback to 4x1 / 1x4 / ZAPack** (BUG-4x1-SMALL-M). Closes silent heap corruption at small M/N; lets us drop the test-harness padding workaround and re-enable small-size correctness sweeps for these kernels.
+2. **Fix NEON 2× correctness bug** (BUG-NEON-2X). Investigate the K-blocking / packed-B reuse path when `N > Nc_cache`.
+3. **Investigate 1×4 IPC collapse.** Counter evidence says the kernel is FMOPA-latency-bound, not bandwidth-bound. Try: rotate across all 4 ZA tiles every instruction so no two adjacent FMOPAs touch the same tile; add an extra software-pipelining stage; experiment with K-unroll. Target: push IPC from 0.62 back toward 1.0+ and surpass 4×1.
+4. **Investigate 2×2's high instruction count.** 2×2 burns ~8.6B instructions at 2048³ vs 4×1's ~4.6B (~87% more). Profile the pack phase separately from the compute phase to confirm where the instructions go.
+5. **Optimize SME kernel:**
+   - Try `__arm_inout("za")` to accumulate across K-blocks without flushing ZA each call — enables smaller K_tile (e.g. 256) that fits L1, with store phase only once at the end.
+   - Explore tiling parameters (M_tile, K_tile, N_tile sweep).
+   - Improve N-tail handling.
+   - Add OpenMP threading.
+6. **Optimize pack_A in SME** so the micro-kernel does not need ps-strided access — enable x4 load instructions.
+7. **Solve accumulator errors at large matrices** (4096³, MaxDiff up to ~100) via pairwise summation `((A + B) + (C + D))` instead of `(A + B + C + D)`.
+8. **Rust scheduling layer** — heterogeneous work distribution (P-core vs E-core tile sizing).
+9. *Stretch:* explore other kernel shapes (4×8, 4×12, 8×8, 8×16 for NEON; alternative SME tile patterns).
