@@ -2,6 +2,8 @@
 #include "SME-GEMMKernels4x1.hpp"
 #include "SME-GEMMKernels2x2.hpp"
 #include "SME-GEMMKernels1x4.hpp"
+#include "SME-GEMMKernels1x4-sym.hpp"
+#include "SME-GEMMKernels1x4-symZAInOut.hpp"
 #include "SME-GEMMKernels4x1ZAPack.hpp"
 #include "../common/utils.hpp"
 
@@ -66,7 +68,9 @@ namespace SMETest {
             case Kernel::K4x1:        return "4x1";
             case Kernel::K2x2:        return "2x2";
             case Kernel::K1x4:        return "1x4";
-            case Kernel::K4x1ZAPack:  return "4x1-ZAPack";
+            case Kernel::K1x4Sym:        return "1x4-sym";
+            case Kernel::K1x4SymZAInOut: return "1x4ZAIO";
+            case Kernel::K4x1ZAPack:     return "4x1-ZAPack";
         }
         return "?";
     }
@@ -78,7 +82,9 @@ namespace SMETest {
             case Kernel::K4x1:        SMEKernels4x1::run_multiplication(A, B, C, M, K, N);       return;
             case Kernel::K2x2:        SMEKernels2x2::run_multiplication(A, B, C, M, K, N);       return;
             case Kernel::K1x4:        SMEKernels1x4::run_multiplication(A, B, C, M, K, N);       return;
-            case Kernel::K4x1ZAPack:  SMEKernels4x1ZAPack::run_multiplication(A, B, C, M, K, N); return;
+            case Kernel::K1x4Sym:        SMEKernels1x4Sym::run_multiplication(A, B, C, M, K, N);        return;
+            case Kernel::K1x4SymZAInOut: SMEKernels1x4SymZAInOut::run_multiplication(A, B, C, M, K, N); return;
+            case Kernel::K4x1ZAPack:     SMEKernels4x1ZAPack::run_multiplication(A, B, C, M, K, N);     return;
         }
     }
 
@@ -93,8 +99,10 @@ namespace SMETest {
         switch (k) {
             case Kernel::K4x1:        return M >= 4 * SVL;
             case Kernel::K1x4:        return N >= 4 * SVL;
-            case Kernel::K4x1ZAPack:  return M >= 4 * SVL;
-            case Kernel::K2x2:        return true;
+            case Kernel::K1x4Sym:        return N >= 4 * SVL;
+            case Kernel::K1x4SymZAInOut: return N >= 4 * SVL;
+            case Kernel::K4x1ZAPack:     return M >= 4 * SVL;
+            case Kernel::K2x2:           return true;
         }
         return true;
     }
@@ -313,6 +321,110 @@ namespace SMETest {
         std::cout << "  pack_B : " << (pack_B_ok ? "PASS" : "FAIL") << "\n";
     }
 
+    // 1x4-sym layout: identical to 1x4 (pack_A: SVL panel, GS=SVL;
+    //                                    pack_B: 4-panel interleaved, GS=4*SVL).
+    // Only the micro-kernel load schedule differs.
+    __arm_locally_streaming
+    static void check_pack_1x4_sym() {
+        const std::size_t SVL = static_cast<std::size_t>(svcntw());
+        const std::size_t M = 32, K = 35, N = 128;
+
+        std::vector<float> A(M * K), B(K * N);
+        for (std::size_t i = 0; i < M; i++)
+            for (std::size_t j = 0; j < K; j++)
+                A[i * K + j] = static_cast<float>(i * 1000 + j);
+        for (std::size_t i = 0; i < K; i++)
+            for (std::size_t j = 0; j < N; j++)
+                B[i * N + j] = static_cast<float>(i * 1000 + j);
+
+        const std::size_t M_curr = M;
+        const std::size_t K_curr = K;
+        const std::size_t N_curr = N;
+
+        std::vector<float> packed_A(M_curr * K_curr + SVL, -999.0f);
+        SMEKernels1x4Sym::pack_A_streaming(A.data(), packed_A.data(), M_curr, K_curr, 0, 0, K);
+
+        bool pack_A_ok = true;
+        for (std::size_t m = 0; m < M_curr && pack_A_ok; m++) {
+            std::size_t m_idx      = m / SVL;
+            std::size_t lane       = m % SVL;
+            std::size_t block_base = m_idx * SVL * K_curr;
+            for (std::size_t k = 0; k < K_curr && pack_A_ok; k++) {
+                if (std::abs(A[m * K + k] - packed_A[block_base + k * SVL + lane]) > 1e-5f)
+                    pack_A_ok = false;
+            }
+        }
+        std::cout << "  pack_A : " << (pack_A_ok ? "PASS" : "FAIL") << "\n";
+
+        const std::size_t GS_B       = 4 * SVL;
+        const std::size_t num_groups = (N_curr + GS_B - 1) / GS_B;
+        std::vector<float> packed_B(num_groups * K_curr * GS_B, -999.0f);
+        SMEKernels1x4Sym::pack_B_streaming(B.data(), packed_B.data(), N_curr, K_curr, 0, N, 0);
+
+        bool pack_B_ok = true;
+        for (std::size_t k = 0; k < K_curr && pack_B_ok; k++) {
+            for (std::size_t n = 0; n < N_curr && pack_B_ok; n++) {
+                std::size_t g      = n / GS_B;
+                std::size_t within = n % GS_B;
+                if (std::abs(B[k * N + n] - packed_B[g * K_curr * GS_B + k * GS_B + within]) > 1e-5f)
+                    pack_B_ok = false;
+            }
+        }
+        std::cout << "  pack_B : " << (pack_B_ok ? "PASS" : "FAIL") << "\n";
+    }
+
+    // 1x4-symZAInOut layout: pack_A uses ZA tile 0 as transpose scratch, so the
+    // wrapper must own a ZA scope (__arm_new("za")) to legally call into a
+    // shared-ZA function. Same pattern as check_pack_4x1ZAPack above.
+    __arm_locally_streaming __arm_new("za")
+    static void check_pack_1x4_zainout() {
+        const std::size_t SVL = static_cast<std::size_t>(svcntw());
+        const std::size_t M = 32, K = 35, N = 128;
+
+        std::vector<float> A(M * K), B(K * N);
+        for (std::size_t i = 0; i < M; i++)
+            for (std::size_t j = 0; j < K; j++)
+                A[i * K + j] = static_cast<float>(i * 1000 + j);
+        for (std::size_t i = 0; i < K; i++)
+            for (std::size_t j = 0; j < N; j++)
+                B[i * N + j] = static_cast<float>(i * 1000 + j);
+
+        const std::size_t M_curr = M;
+        const std::size_t K_curr = K;
+        const std::size_t N_curr = N;
+
+        std::vector<float> packed_A(M_curr * K_curr + SVL, -999.0f);
+        SMEKernels1x4SymZAInOut::pack_A_streaming(A.data(), packed_A.data(), M_curr, K_curr, 0, 0, K);
+
+        bool pack_A_ok = true;
+        for (std::size_t m = 0; m < M_curr && pack_A_ok; m++) {
+            std::size_t m_idx      = m / SVL;
+            std::size_t lane       = m % SVL;
+            std::size_t block_base = m_idx * SVL * K_curr;
+            for (std::size_t k = 0; k < K_curr && pack_A_ok; k++) {
+                if (std::abs(A[m * K + k] - packed_A[block_base + k * SVL + lane]) > 1e-5f)
+                    pack_A_ok = false;
+            }
+        }
+        std::cout << "  pack_A : " << (pack_A_ok ? "PASS" : "FAIL") << "\n";
+
+        const std::size_t GS_B       = 4 * SVL;
+        const std::size_t num_groups = (N_curr + GS_B - 1) / GS_B;
+        std::vector<float> packed_B(num_groups * K_curr * GS_B, -999.0f);
+        SMEKernels1x4SymZAInOut::pack_B_streaming(B.data(), packed_B.data(), N_curr, K_curr, 0, N, 0);
+
+        bool pack_B_ok = true;
+        for (std::size_t k = 0; k < K_curr && pack_B_ok; k++) {
+            for (std::size_t n = 0; n < N_curr && pack_B_ok; n++) {
+                std::size_t g      = n / GS_B;
+                std::size_t within = n % GS_B;
+                if (std::abs(B[k * N + n] - packed_B[g * K_curr * GS_B + k * GS_B + within]) > 1e-5f)
+                    pack_B_ok = false;
+            }
+        }
+        std::cout << "  pack_B : " << (pack_B_ok ? "PASS" : "FAIL") << "\n";
+    }
+
     // =========================================================================
     // PHASES
     // =========================================================================
@@ -320,10 +432,12 @@ namespace SMETest {
     static void phase_pack_correctness(Kernel k) {
         std::cout << "\n--- Phase 1: Pack correctness ---\n";
         switch (k) {
-            case Kernel::K4x1:        check_pack_4x1();        break;
-            case Kernel::K4x1ZAPack:  check_pack_4x1ZAPack();  break;
-            case Kernel::K2x2:        check_pack_2x2();        break;
-            case Kernel::K1x4:        check_pack_1x4();        break;
+            case Kernel::K4x1:           check_pack_4x1();         break;
+            case Kernel::K4x1ZAPack:     check_pack_4x1ZAPack();   break;
+            case Kernel::K2x2:           check_pack_2x2();         break;
+            case Kernel::K1x4:           check_pack_1x4();         break;
+            case Kernel::K1x4Sym:        check_pack_1x4_sym();     break;
+            case Kernel::K1x4SymZAInOut: check_pack_1x4_zainout(); break;
         }
     }
 
@@ -397,45 +511,76 @@ namespace SMETest {
     // PUBLIC: cross-kernel comparison
     // =========================================================================
 
+    // Interleaved comparison: each outer iteration runs every kernel once, so
+    // cache state averages out across kernels instead of giving later-in-the-
+    // -array kernels a warmer L2/L3. Iteration counts are sized so each kernel
+    // gets ~stable wall time; small sizes get more iters to outrun timer noise.
     void run_comparison() {
         // ZAPack is excluded — it has a known wrong-result/heap-corrupt bug at
         // small sizes (TODO §2). Re-add once fixed.
-        const Kernel all[] = { Kernel::K4x1, Kernel::K2x2, Kernel::K1x4 };
+        const Kernel all[] = {
+            Kernel::K4x1, Kernel::K2x2, Kernel::K1x4, Kernel::K1x4Sym, Kernel::K1x4SymZAInOut
+        };
         constexpr int N_K = sizeof(all) / sizeof(all[0]);
 
+        auto iters_for_size = [](std::size_t n) -> int {
+            if (n <=  256) return 400;
+            if (n <=  512) return 200;
+            if (n <= 1024) return 100;
+            if (n <= 2048) return 50;
+            return 20; // 4096^3
+        };
+
         std::cout << "\n=====================================================\n";
-        std::cout << "  Side-by-side: 4x1 vs 2x2 vs 1x4   (iters=" << kComparisonIters << ")\n";
+        std::cout << "  Side-by-side: 4x1 vs 2x2 vs 1x4 vs 1x4-sym vs 1x4ZAIO   (interleaved)\n";
         std::cout << "=====================================================\n";
 
         std::cout << std::left << std::setw(10) << "  Size"
                   << std::right
+                  << std::setw(8)  << "iters"
                   << std::setw(12) << "4x1"
                   << std::setw(12) << "2x2"
                   << std::setw(12) << "1x4"
+                  << std::setw(12) << "1x4-sym"
+                  << std::setw(12) << "1x4ZAIO"
                   << std::setw(12) << "Winner" << "\n";
-        std::cout << "  " << std::string(58, '-') << "\n";
+        std::cout << "  " << std::string(90, '-') << "\n";
 
         for (auto& tc : kComparisonCases) {
+            const int iters = iters_for_size(std::max({tc.M, tc.K, tc.N}));
+
             std::vector<float> A(tc.M * tc.K), B(tc.K * tc.N), C(tc.M * tc.N, 0.0f);
             Utils::fill_random(A);
             Utils::fill_random(B);
 
-            double gflops[N_K] = { 0 };
-            for (int i = 0; i < N_K; i++) {
-                std::fill(C.begin(), C.end(), 0.0f);
-                run_kernel(all[i], A.data(), B.data(), C.data(), tc.M, tc.K, tc.N); // warmup
-                auto t0 = Clock::now();
-                for (int it = 0; it < kComparisonIters; it++)
+            // Warmup: run each kernel once so all four have paid the page-fault
+            // / icache-fill / data-touch cost before timing starts.
+            for (int i = 0; i < N_K; i++)
+                run_kernel(all[i], A.data(), B.data(), C.data(), tc.M, tc.K, tc.N);
+
+            // Interleaved timing: outer loop is iterations, inner loop is
+            // kernels. Each kernel sees the same average cache state.
+            // C is left to accumulate — every kernel pays the same C r/w cost.
+            double sec_total[N_K] = { 0 };
+            for (int it = 0; it < iters; it++) {
+                for (int i = 0; i < N_K; i++) {
+                    auto t0 = Clock::now();
                     run_kernel(all[i], A.data(), B.data(), C.data(), tc.M, tc.K, tc.N);
-                double sec = std::chrono::duration<double>(Clock::now() - t0).count();
-                gflops[i]  = (2.0 * tc.M * tc.N * tc.K * kComparisonIters / 1e9) / sec;
+                    sec_total[i] += std::chrono::duration<double>(Clock::now() - t0).count();
+                }
             }
+
+            double gflops[N_K] = { 0 };
+            for (int i = 0; i < N_K; i++)
+                gflops[i] = (2.0 * tc.M * tc.N * tc.K * iters / 1e9) / sec_total[i];
 
             int best = 0;
             for (int i = 1; i < N_K; i++) if (gflops[i] > gflops[best]) best = i;
 
             std::cout << std::left << std::setw(10) << (std::string("  ") + tc.name)
-                      << std::right << std::fixed << std::setprecision(1);
+                      << std::right
+                      << std::setw(8) << iters
+                      << std::fixed << std::setprecision(1);
             for (int i = 0; i < N_K; i++) std::cout << std::setw(12) << gflops[i];
             std::cout << std::setw(12) << kernel_name(all[best]) << "\n";
         }

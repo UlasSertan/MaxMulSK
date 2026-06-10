@@ -5,7 +5,7 @@
 namespace SMETest {
 
     // Kernel selector — picks which SME variant to exercise.
-    enum class Kernel { K4x1, K2x2, K1x4, K4x1ZAPack };
+    enum class Kernel { K4x1, K2x2, K1x4, K1x4Sym, K1x4SymZAInOut, K4x1ZAPack };
 
     // Full per-kernel suite: pack correctness → GEMM correctness → benchmark.
     void run(Kernel k);

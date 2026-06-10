@@ -120,6 +120,53 @@ On M4 macOS Sonoma+, `powermetrics --samplers cpu_power` no longer prints the `P
 ### MINOR: OpenBLAS PMU counter undercount
 `profile.sh oblas` reports only ~650M instructions for a 3-second run at 2048³ × 100 iters (IPC ≈ 0.05 — implausible). Suspected: AMX-internal compute path doesn't count toward `INST_ALL`, OR the trace template loses events from dlopen'd dylib symbol attribution. Comparison against AMX/NEON paths via this counter is unreliable for OpenBLAS until investigated.
 
+
+## Hypothesis (2026-04-29)
+--------------
+
+Hypothesis: Packing Cost vs Reuse Asymmetry (4×1 vs 1×4)
+Observation:
+In the 4×1 kernel, pack_A takes a significant portion of runtime (~22%).
+pack_A is inherently more expensive than pack_B due to:
+Butterfly transpose
+Operating on large SVL×SVL tiles
+pack_B is relatively cheap:
+Mostly pointer rearrangement / streaming
+Works on smaller chunks (e.g., 2×SVL per step)
+Hypothesis:
+Performance differences between 4×1 and 1×4(-sym) are driven by how often each operand is repacked vs reused.
+In 4×1 (A-inner):
+A is consumed more aggressively inside the microkernel (4 A loads per step)
+This causes A panels to be “drained” faster
+As a result, pack_A is invoked more frequently
+Since pack_A is expensive, this creates a sustained overhead
+CPU spends more time in packing relative to compute
+In 1×4 (B-inner / sym variant):
+B is reused more heavily across computation
+A is packed less frequently and reused longer
+Since pack_A is the more expensive operation, reducing its frequency improves performance
+Even if B is packed more often, its lower cost makes this tradeoff favorable
+Interpretation:
+The dominant factor is not just the raw cost of packing, but:
+How long each packed panel stays useful before needing to be repacked
+If an expensive operand (A) is reused longer → better amortization → higher performance
+If it is repacked frequently → overhead dominates
+Additional context:
+Current experiments use large K (≈2048), while M/N tile sizes are relatively small (e.g., 64×512 or 512×64)
+This setup minimizes total packing iterations but still exposes differences in reuse patterns
+Results are tuned for peak GFLOPS (large matrices), not small-size efficiency
+What to verify:
+Count how often pack_A and pack_B are called in each kernel
+Measure time split between:
+pack_A
+pack_B
+compute
+Check whether A is actually repacked more frequently in 4×1 vs 1×4(-sym)
+Validate whether longer reuse of A correlates with better performance
+Status:
+Unverified hypothesis — needs targeted experiments
+
+
 ---
 
 ## Next Steps (in order)

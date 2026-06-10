@@ -15,6 +15,8 @@ add_executable(MatrixLibrary
         sme/SME-GEMMKernels4x1.cpp
         sme/SME-GEMMKernels2x2.cpp
         sme/SME-GEMMKernels1x4.cpp
+        sme/SME-GEMMKernels1x4-sym.cpp
+        sme/SME-GEMMKernels1x4-symZAInOut.cpp
         sme/SME-GEMMKernels4x1ZAPack.cpp
         sme/test_sme.cpp
 )
@@ -31,7 +33,7 @@ set_source_files_properties(neon/GEMMKernels.cpp neon/test_neon.cpp PROPERTIES
 )
 
 # SME: ARMv8.7 + SME/SME2 extensions (re-enable with the sources above)
-set_source_files_properties(sme/SME-GEMMKernels4x1.cpp sme/SME-GEMMKernels2x2.cpp sme/SME-GEMMKernels1x4.cpp sme/SME-GEMMKernels4x1ZAPack.cpp sme/test_sme.cpp PROPERTIES
+set_source_files_properties(sme/SME-GEMMKernels4x1.cpp sme/SME-GEMMKernels2x2.cpp sme/SME-GEMMKernels1x4.cpp sme/SME-GEMMKernels1x4-sym.cpp sme/SME-GEMMKernels1x4-symZAInOut.cpp sme/SME-GEMMKernels4x1ZAPack.cpp sme/test_sme.cpp PROPERTIES
         COMPILE_OPTIONS "-march=armv8.7-a+sme+sme2"
 )
 
@@ -94,6 +96,33 @@ target_include_directories(bench_profile PRIVATE
 )
 
 target_link_libraries(bench_profile PRIVATE
+        /opt/homebrew/opt/libomp/lib/libomp.dylib
+        "-framework Accelerate"
+)
+
+# =============================================================================
+# matmul — head-to-head N=2048 single-thread benchmark: our SME 1x4SymZAInOut
+# kernel vs Apple Accelerate. Shares A/B buffers and best-of-7 timing. Built
+# and run via run_matmul.sh.
+# =============================================================================
+add_executable(matmul
+        experimentalAICodes/matmul.cpp
+        sme/SME-GEMMKernels1x4-symZAInOut.cpp
+)
+
+target_compile_options(matmul PRIVATE
+        -O3 -Wall -Wextra
+        -mcpu=apple-m4
+        -march=armv8.7-a+sme+sme2
+        -fopenmp
+)
+
+target_include_directories(matmul PRIVATE
+        /opt/homebrew/opt/libomp/include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(matmul PRIVATE
         /opt/homebrew/opt/libomp/lib/libomp.dylib
         "-framework Accelerate"
 )

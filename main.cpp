@@ -233,6 +233,8 @@ int main() {
     SMETest::run(SMETest::Kernel::K4x1);
     SMETest::run(SMETest::Kernel::K2x2);
     SMETest::run(SMETest::Kernel::K1x4);
+    SMETest::run(SMETest::Kernel::K1x4Sym);
+    SMETest::run(SMETest::Kernel::K1x4SymZAInOut);
     // SMETest::run(SMETest::Kernel::K4x1ZAPack); // disabled: heap-corrupt crash at 32^3 (TODO §2)
 
     // --- Cross-kernel comparison + 4x1 phase breakdown ---
@@ -249,10 +251,13 @@ int main() {
         [[maybe_unused]] constexpr std::size_t M = 2048, K = 2048, N = 2048;
         [[maybe_unused]] constexpr int iters = 100;
 
-        SMETest::profile(SMETest::Kernel::K4x1,       M, K, N, iters);
-        // SMETest::profile(SMETest::Kernel::K2x2,       M, K, N, iters);
-        // SMETest::profile(SMETest::Kernel::K1x4,       M, K, N, iters);
-        // SMETest::profile(SMETest::Kernel::K4x1ZAPack, M, K, N, iters);
+        // SMETest::profile(SMETest::Kernel::K4x1,           M, K, N, iters);
+        // SMETest::profile(SMETest::Kernel::K2x2,           M, K, N, iters);
+        // SMETest::profile(SMETest::Kernel::K1x4,           M, K, N, iters);
+        // SMETest::profile(SMETest::Kernel::K1x4Sym,        M, K, N, iters);
+        SMETest::run(SMETest::Kernel::K1x4SymZAInOut); // TEMP: butterfly K_inner=40 baseline
+        // SMETest::profile(SMETest::Kernel::K1x4SymZAInOut, M, K, N, iters);
+        // SMETest::profile(SMETest::Kernel::K4x1ZAPack,     M, K, N, iters);
     }
 
     return 0;

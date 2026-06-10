@@ -14,7 +14,7 @@
 #
 # Edit main.cpp to leave only the kernel you want to measure active.
 
-set -euo pipefail
+set -eo pipefail
 
 if ! command -v cmake &>/dev/null; then
     export PATH="/Applications/CLion.app/Contents/bin/cmake/mac/aarch64/bin:$PATH"
