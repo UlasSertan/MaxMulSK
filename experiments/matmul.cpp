@@ -50,7 +50,7 @@
 #include <cerrno>
 #include <omp.h>
 
-#include "../sme/SME-GEMMKernels1x4-symZAInOut.hpp"
+#include "../sme/sme-1x4-sym-zainout.hpp"
 
 #define N         2048
 #define MAT_ALIGN  128           // M4 cache-line size (sysctl hw.cachelinesize)

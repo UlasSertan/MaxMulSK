@@ -1,4 +1,4 @@
-#include "SME-GEMMKernels2x2.hpp"
+#include "sme-2x2.hpp"
 
 #include <arm_sme.h>
 #include <arm_sve.h>

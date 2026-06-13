@@ -1,4 +1,4 @@
-#include "SME-GEMMKernels1x4-symZAInOut.hpp"
+#include "sme-1x4-sym-zainout.hpp"
 
 #include <arm_sme.h>
 #include <arm_sve.h>

@@ -81,10 +81,10 @@ for (size_t i = 0; i < M_step * N_step; i += SVL)
 ## Recently Completed
 
 ### ~~Processor Trace / PMU counter instrumentation~~ — DONE
-Built `profile.sh` around Instruments' `GemmTemplate.tracetemplate`. Records `L1D_CACHE_MISS_LD`, `L1D_CACHE_MISS_ST`, `INST_ALL` via `xctrace record`, extracts per-process totals with a Python XML parser over the `counters-profile` schema, derives L1D-misses/1M-instructions and (combined with stdout timing) FLOPs/instr and IPC. Saves compact `traces/<name>.txt` summaries; drops the heavy `.trace` bundle by default. See BENCHMARKS.md §10.
+Built `scripts/profile.sh` around Instruments' `GemmTemplate.tracetemplate`. Records `L1D_CACHE_MISS_LD`, `L1D_CACHE_MISS_ST`, `INST_ALL` via `xctrace record`, extracts per-process totals with a Python XML parser over the `counters-profile` schema, derives L1D-misses/1M-instructions and (combined with stdout timing) FLOPs/instr and IPC. Saves compact `traces/<name>.txt` summaries; drops the heavy `.trace` bundle by default. See docs/BENCHMARKS.md §10.
 
 ### ~~A-inner vs B-inner packing A/B test~~ — DONE (moved from "spare time" item, now a primary result)
-Built an experimental 1×4 B-inner kernel (transpose of 4×1) and profiled all three layouts with PMU counters. 1×4 has the lowest instruction count and fewest L1D misses per instruction, but **loses on wall-clock GFLOPS** (1148 vs 4×1's 1213). Root cause per counters: IPC drops from 1.07 (4×1) to 0.62 (1×4) — the tighter instruction stream leaves too little slack between back-to-back FMOPAs targeting the same ZA tile, and pipeline stalls on same-tile dependency chains. Lesson: fewer instructions ≠ faster when FMOPA latency (6–8 cycles on M4) isn't hidden. Full write-up in BENCHMARKS.md §9–§10.
+Built an experimental 1×4 B-inner kernel (transpose of 4×1) and profiled all three layouts with PMU counters. 1×4 has the lowest instruction count and fewest L1D misses per instruction, but **loses on wall-clock GFLOPS** (1148 vs 4×1's 1213). Root cause per counters: IPC drops from 1.07 (4×1) to 0.62 (1×4) — the tighter instruction stream leaves too little slack between back-to-back FMOPAs targeting the same ZA tile, and pipeline stalls on same-tile dependency chains. Lesson: fewer instructions ≠ faster when FMOPA latency (6–8 cycles on M4) isn't hidden. Full write-up in docs/BENCHMARKS.md §9–§10.
 
 ### ~~1×4 experimental kernel shape~~ — DONE
 Implemented in `sme/SME-GEMMKernelsExperimental.{hpp,cpp}`. Correctness verified; benchmark wired into `test_sme.cpp::profile_1x4`. Kept in-tree as the B-inner reference point even though 4×1 remains the production kernel.
@@ -118,7 +118,7 @@ Implemented in `sme/SME-GEMMKernelsExperimental.{hpp,cpp}`. Correctness verified
 On M4 macOS Sonoma+, `powermetrics --samplers cpu_power` no longer prints the `P-Cluster Power: NNN mW` / `E-Cluster Power: NNN mW` lines that the parser expects — only `Combined Power` is captured. P-cluster and E-cluster averages currently report 0.0 W. Combined is the meaningful number for J/GFLOP, so this is cosmetic, but worth fixing.
 
 ### MINOR: OpenBLAS PMU counter undercount
-`profile.sh oblas` reports only ~650M instructions for a 3-second run at 2048³ × 100 iters (IPC ≈ 0.05 — implausible). Suspected: AMX-internal compute path doesn't count toward `INST_ALL`, OR the trace template loses events from dlopen'd dylib symbol attribution. Comparison against AMX/NEON paths via this counter is unreliable for OpenBLAS until investigated.
+`scripts/profile.sh oblas` reports only ~650M instructions for a 3-second run at 2048³ × 100 iters (IPC ≈ 0.05 — implausible). Suspected: AMX-internal compute path doesn't count toward `INST_ALL`, OR the trace template loses events from dlopen'd dylib symbol attribution. Comparison against AMX/NEON paths via this counter is unreliable for OpenBLAS until investigated.
 
 
 ## Hypothesis (2026-04-29)

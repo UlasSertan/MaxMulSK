@@ -6,6 +6,9 @@ if ! command -v cmake &>/dev/null; then
     export PATH="/Applications/CLion.app/Contents/bin/cmake/mac/aarch64/bin:$PATH"
 fi
 
+# Anchor to repo root so relative paths resolve regardless of caller's cwd
+cd "$(dirname "$0")/.."
+
 BUILD_DIR="cmake-build-release"
 BINARY="$BUILD_DIR/MatrixLibrary"
 JOBS=$(sysctl -n hw.logicalcpu 2>/dev/null || nproc)

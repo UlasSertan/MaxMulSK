@@ -2,10 +2,10 @@
 # Run the GemmTemplate Instruments trace and produce a compact summary.
 #
 # Usage:
-#   ./profile.sh                    # output saved as traces/<timestamp>.txt
-#   ./profile.sh 4x1                # output saved as traces/4x1.txt
-#   ./profile.sh --no-build 4x1     # skip rebuild
-#   ./profile.sh --keep-trace 4x1   # also keep the full .trace bundle
+#   ./scripts/profile.sh                    # output saved as traces/<timestamp>.txt
+#   ./scripts/profile.sh 4x1                # output saved as traces/4x1.txt
+#   ./scripts/profile.sh --no-build 4x1     # skip rebuild
+#   ./scripts/profile.sh --keep-trace 4x1   # also keep the full .trace bundle
 #
 # Produces:
 #   traces/NAME.txt     — summary (GFLOPS from stdout + counter totals)
@@ -19,6 +19,9 @@ set -eo pipefail
 if ! command -v cmake &>/dev/null; then
     export PATH="/Applications/CLion.app/Contents/bin/cmake/mac/aarch64/bin:$PATH"
 fi
+
+# Anchor to repo root so relative paths resolve regardless of caller's cwd
+cd "$(dirname "$0")/.."
 
 BUILD_DIR="cmake-build-release"
 BINARY="$BUILD_DIR/MatrixLibrary"

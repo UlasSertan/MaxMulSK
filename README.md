@@ -16,11 +16,11 @@ Explores and benchmarks three levels of compute on ARM:
 
 All optimized kernels use cache-blocking and pack A/B into contiguous, kernel-friendly layouts. The 2×2 kernel handles arbitrary M/N/K via a scratch-buffer fallback for partial output tiles. **Caveat (TODO §1):** the 4×1 / 1×4 / ZAPack micro-kernels write a fixed 4·SVL × SVL (or SVL × 4·SVL) output tile and *do not* yet have a scratch-buffer path — sizes with M < 64 (or N < 64 for 1×4) silently write past `C` and corrupt the heap. Production usage targets large M/N where this never triggers; the test harness either skips small sizes or pads `C` to absorb the overrun.
 
-The SME kernels use SVE predicated loads for K-tail handling and ZA tile accumulators for outer-product computation. Three SME micro-kernel layouts are implemented (4×1, 2×2, 1×4); peak winners depend on size — 4×1 and 1×4 tie at 4096³, 2×2 wins at 1024³–2048³. See [BENCHMARKS.md](BENCHMARKS.md) for full experimental results: power/energy comparison vs Accelerate / PyTorch / OpenBLAS / NumPy, cache behavior, Instruments PMU profiling, and micro-kernel tuning experiments.
+The SME kernels use SVE predicated loads for K-tail handling and ZA tile accumulators for outer-product computation. Three SME micro-kernel layouts are implemented (4×1, 2×2, 1×4); peak winners depend on size — 4×1 and 1×4 tie at 4096³, 2×2 wins at 1024³–2048³. See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for full experimental results: power/energy comparison vs Accelerate / PyTorch / OpenBLAS / NumPy, cache behavior, Instruments PMU profiling, and micro-kernel tuning experiments.
 
 ## Single-Thread Comparison vs Industry Libraries
 
-Benchmarked on Apple M4, single-threaded float32 GEMM, threads pinned to 1. Numbers below are from the 2026-04-26 fresh measurement (`bench/run_bench.sh`). Full table in BENCHMARKS.md §8.4.
+Benchmarked on Apple M4, single-threaded float32 GEMM, threads pinned to 1. Numbers below are from the 2026-04-26 fresh measurement (`bench/run_bench.sh`). Full table in docs/BENCHMARKS.md §8.4.
 
 | Library | Backend | Peak GFLOPS (4096³ unless noted) | Notes |
 |---------|---------|-------------|-------|
@@ -60,7 +60,7 @@ The 1×4 (B-inner) kernel is the mathematical transpose of 4×1 (A-inner) — sa
 - **x4-load baseline (retired):** symmetric to 4×1 — one `svld1_f32_x4` per k-step on the B side. Reached ~1148 GFLOPS but stalled on FMOPA same-tile dependency chains. IPC collapsed to 0.62 (vs 4×1's 1.07 in the same-era measurement) — the instruction stream was too lean to fill FMOPA's 6–8 cycle execution shadow.
 - **x1 interleaved rescue (current):** replace the grouped x4 B-load with four independent `svld1_f32` loads issued inline between successive svmopa instructions, dropping into the FMOPA shadow. This *worked* microarchitecturally — IPC jumped to 1.40, higher than 4×1 — but at the cost of a 2.5× instruction-count inflation (~4.1 B → ~10.3 B over 100 iters in the original measurement). Throughput went *down*, not up — to ~1018 GFLOPS at 2048³.
 
-**The takeaway:** A-inner (4×1) is the only geometry on the M4 SME pipeline that produces a scheduling-friendly load/FMOPA mix *without* an instruction tax. The 4 A-loads per k-step act as latency-hiding filler "for free". Full data and per-iteration counters in BENCHMARKS.md §10.1.
+**The takeaway:** A-inner (4×1) is the only geometry on the M4 SME pipeline that produces a scheduling-friendly load/FMOPA mix *without* an instruction tax. The 4 A-loads per k-step act as latency-hiding filler "for free". Full data and per-iteration counters in docs/BENCHMARKS.md §10.1.
 
 **What's changed in the 2026-04-26 measurement:** the same x1-interleaved 1×4 kernel now hits ~1190 GFLOPS at 4096³ — essentially tied with 4×1 — and ~1025 at 2048³. The kernel evolved (instruction count is now 1.82 B at 100 iters per the fresh PMU profile, *not* 10.3 B); the IPC-collapse / instruction-tax narrative above is the cleanest explanation we have for *why* B-inner is hard, but the absolute numbers from §10 are now stale and replaced by §10.0. Either way, 4×1 stays the default — it's never worse than the alternatives and is the most energy-efficient.
 
@@ -83,26 +83,34 @@ MatrixLibrary/
 │   ├── GEMMKernels.hpp/.cpp                 # NEON kernel + packing — complete (with BUG-NEON-2X open)
 │   └── test_neon.hpp/.cpp                   # Packing + GEMM correctness vs scalar
 ├── sme/
-│   ├── SME-GEMMKernels4x1.hpp/.cpp          # SME 4×1 kernel + packing — production default
-│   ├── SME-GEMMKernels2x2.hpp/.cpp          # SME 2×2 kernel + interleaved B packing
-│   ├── SME-GEMMKernels1x4.hpp/.cpp          # SME 1×4 B-inner kernel (experimental, x1 interleaved loads)
-│   ├── SME-GEMMKernels4x1ZAPack.hpp/.cpp    # SME 4×1 with ZA-based pack_A transpose (disabled — has bug)
-│   └── test_sme.hpp/.cpp                    # Single dispatch surface: SMETest::Kernel enum + run / run_comparison / run_timing_breakdown / profile
+│   ├── SME-GEMMKernels4x1.hpp/.cpp                # SME 4×1 kernel + packing — production default
+│   ├── SME-GEMMKernels2x2.hpp/.cpp                # SME 2×2 kernel + interleaved B packing
+│   ├── SME-GEMMKernels1x4.hpp/.cpp                # SME 1×4 B-inner kernel (experimental, x1 interleaved loads)
+│   ├── SME-GEMMKernels1x4-sym.hpp/.cpp            # SME 1×4 x4-grouped B loads (true mirror of 4×1)
+│   ├── SME-GEMMKernels1x4-symZAInOut.hpp/.cpp     # SME 1×4-sym with split zero/compute/store sharing ZA via __arm_inout
+│   ├── SME-GEMMKernels4x1ZAPack.hpp/.cpp          # SME 4×1 with ZA-based pack_A transpose (disabled — has bug)
+│   └── test_sme.hpp/.cpp                          # Single dispatch surface: SMETest::Kernel enum + run / run_comparison / run_timing_breakdown / profile
 ├── bench/
 │   ├── bench_compare.cpp                    # C++ comparison: NEON / SME / Accelerate / OpenBLAS
 │   ├── bench_python.py                      # Python comparison: NumPy / PyTorch
-│   ├── bench_profile.cpp                    # Single-library driver (accel|oblas) for profile.sh / profile_power.sh
+│   ├── bench_profile.cpp                    # Single-library driver (accel|oblas) for profiling scripts
 │   ├── bench_profile.py                     # Single-library driver (numpy|pytorch)
-│   ├── run_bench.sh                         # Build + run both comparison benchmarks
+│   └── run_bench.sh                         # Build + run both comparison benchmarks
+├── experiments/
+│   └── matmul.cpp                           # Standalone N=2048 head-to-head: our SME kernel vs Accelerate
+├── scripts/
+│   ├── run.sh                               # Build + run main binary
+│   ├── run_matmul.sh                        # Build + run the matmul experiment (vs Accelerate)
+│   ├── profile.sh                           # Instruments PMU profiling (L1 misses, INST_ALL); accepts --binary / --args
+│   └── profile_power.sh                     # powermetrics-based energy profiling (J / GFLOPS-W / thermal pressure)
+├── docs/
+│   ├── BENCHMARKS.md                        # Detailed experimental results (power, cache, instructions)
 │   └── COMPARISON.md                        # Older detailed comparison report
-├── traces/                                  # Output of profile.sh / profile_power.sh (PMU + power summaries)
+├── traces/                                  # Output of the profiling scripts (PMU + power summaries)
 ├── main.cpp                                 # Test runner + benchmark harness
+├── TODO.md                                  # Active bug list + roadmap
 ├── CMakeLists.txt
-├── run.sh                                   # Build + run main binary
-├── profile.sh                               # Instruments PMU profiling (L1 misses, INST_ALL); accepts --binary / --args
-├── profile_power.sh                         # powermetrics-based energy profiling (J / GFLOPS-W / thermal pressure)
-├── GemmTemplate.tracetemplate               # Xcode Instruments template (PMU counter list)
-└── BENCHMARKS.md                            # Detailed experimental results (power, cache, instructions)
+└── GemmTemplate.tracetemplate               # Xcode Instruments template (PMU counter list)
 ```
 
 ## Requirements
@@ -118,25 +126,25 @@ MatrixLibrary/
 
 ```bash
 # Main binary (NEON tests + SME suites + comparison + timing breakdown)
-./run.sh
+./scripts/run.sh
 
 # Single-thread competitor comparison (NEON / SME / Accelerate / OpenBLAS / NumPy / PyTorch)
 ./bench/run_bench.sh
 
 # Instruments PMU profiling — saves traces/<name>.txt
-./profile.sh 4x1                                                        # edit main.cpp to leave only the target kernel active
-./profile.sh --binary cmake-build-release/bench_profile \
-             --args "accel 2048 2048 2048 100" accel                    # competitor library
+./scripts/profile.sh 4x1                                                # edit main.cpp to leave only the target kernel active
+./scripts/profile.sh --binary cmake-build-release/bench_profile \
+                     --args "accel 2048 2048 2048 100" accel            # competitor library
 
 # Energy / thermal profiling — saves traces/<name>_power.txt (sudo for powermetrics)
-sudo ./profile_power.sh --no-build 4x1                                  # SME kernel
-sudo ./profile_power.sh --binary /opt/anaconda3/bin/python \
-                        --args "bench/bench_profile.py pytorch 2048 2048 2048 100" pytorch
+sudo ./scripts/profile_power.sh --no-build 4x1                          # SME kernel
+sudo ./scripts/profile_power.sh --binary /opt/anaconda3/bin/python \
+                                --args "bench/bench_profile.py pytorch 2048 2048 2048 100" pytorch
 ```
 
 ## Output
 
-Running `./run.sh` executes NEON unit tests, NEON speed sweep, all three working SME kernel suites (pack correctness → GEMM correctness → benchmark), the cross-kernel comparison, and the 4×1 timing breakdown.
+Running `./scripts/run.sh` executes NEON unit tests, NEON speed sweep, all three working SME kernel suites (pack correctness → GEMM correctness → benchmark), the cross-kernel comparison, and the 4×1 timing breakdown.
 
 ## Roadmap
 

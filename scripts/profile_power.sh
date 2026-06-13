@@ -3,9 +3,9 @@
 # average CPU power, total energy in Joules, and thermal pressure.
 #
 # Usage:
-#   ./profile_power.sh                   # output saved as traces/<timestamp>_power.txt
-#   ./profile_power.sh 4x1               # output saved as traces/4x1_power.txt
-#   ./profile_power.sh --no-build 4x1    # skip rebuild
+#   ./scripts/profile_power.sh                   # output saved as traces/<timestamp>_power.txt
+#   ./scripts/profile_power.sh 4x1               # output saved as traces/4x1_power.txt
+#   ./scripts/profile_power.sh --no-build 4x1    # skip rebuild
 #
 # Requires: sudo (powermetrics)
 #
@@ -21,6 +21,9 @@ set -eo pipefail
 if ! command -v cmake &>/dev/null; then
     export PATH="/Applications/CLion.app/Contents/bin/cmake/mac/aarch64/bin:$PATH"
 fi
+
+# Anchor to repo root so relative paths resolve regardless of caller's cwd
+cd "$(dirname "$0")/.."
 
 BUILD_DIR="cmake-build-release"
 BINARY="$BUILD_DIR/MatrixLibrary"

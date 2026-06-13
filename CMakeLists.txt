@@ -10,14 +10,14 @@ set(CMAKE_CXX_COMPILER "/opt/homebrew/opt/llvm/bin/clang++")
 
 add_executable(MatrixLibrary
         main.cpp
-        neon/GEMMKernels.cpp
+        neon/neon-8x12.cpp
         neon/test_neon.cpp
-        sme/SME-GEMMKernels4x1.cpp
-        sme/SME-GEMMKernels2x2.cpp
-        sme/SME-GEMMKernels1x4.cpp
-        sme/SME-GEMMKernels1x4-sym.cpp
-        sme/SME-GEMMKernels1x4-symZAInOut.cpp
-        sme/SME-GEMMKernels4x1ZAPack.cpp
+        sme/sme-4x1.cpp
+        sme/sme-2x2.cpp
+        sme/sme-1x4.cpp
+        sme/sme-1x4-sym.cpp
+        sme/sme-1x4-sym-zainout.cpp
+        sme/sme-4x1-zapack.cpp
         sme/test_sme.cpp
 )
 
@@ -28,12 +28,12 @@ target_compile_options(MatrixLibrary PRIVATE
 )
 
 # NEON: ARMv8.4 baseline
-set_source_files_properties(neon/GEMMKernels.cpp neon/test_neon.cpp PROPERTIES
+set_source_files_properties(neon/neon-8x12.cpp neon/test_neon.cpp PROPERTIES
         COMPILE_OPTIONS "-march=armv8.4-a"
 )
 
 # SME: ARMv8.7 + SME/SME2 extensions (re-enable with the sources above)
-set_source_files_properties(sme/SME-GEMMKernels4x1.cpp sme/SME-GEMMKernels2x2.cpp sme/SME-GEMMKernels1x4.cpp sme/SME-GEMMKernels1x4-sym.cpp sme/SME-GEMMKernels1x4-symZAInOut.cpp sme/SME-GEMMKernels4x1ZAPack.cpp sme/test_sme.cpp PROPERTIES
+set_source_files_properties(sme/sme-4x1.cpp sme/sme-2x2.cpp sme/sme-1x4.cpp sme/sme-1x4-sym.cpp sme/sme-1x4-sym-zainout.cpp sme/sme-4x1-zapack.cpp sme/test_sme.cpp PROPERTIES
         COMPILE_OPTIONS "-march=armv8.7-a+sme+sme2"
 )
 
@@ -51,10 +51,10 @@ target_link_libraries(MatrixLibrary PRIVATE
 # =============================================================================
 add_executable(bench_compare
         bench/bench_compare.cpp
-        neon/GEMMKernels.cpp
-        sme/SME-GEMMKernels4x1.cpp
-        sme/SME-GEMMKernels2x2.cpp
-        sme/SME-GEMMKernels4x1ZAPack.cpp
+        neon/neon-8x12.cpp
+        sme/sme-4x1.cpp
+        sme/sme-2x2.cpp
+        sme/sme-4x1-zapack.cpp
 )
 
 target_compile_options(bench_compare PRIVATE
@@ -76,8 +76,8 @@ target_link_libraries(bench_compare PRIVATE
 )
 
 # =============================================================================
-# bench_profile — single-library, single-size driver for profile.sh /
-# profile_power.sh runs against Accelerate or OpenBLAS.
+# bench_profile — single-library, single-size driver for scripts/profile.sh /
+# scripts/profile_power.sh runs against Accelerate or OpenBLAS.
 # =============================================================================
 add_executable(bench_profile
         bench/bench_profile.cpp
@@ -103,11 +103,11 @@ target_link_libraries(bench_profile PRIVATE
 # =============================================================================
 # matmul — head-to-head N=2048 single-thread benchmark: our SME 1x4SymZAInOut
 # kernel vs Apple Accelerate. Shares A/B buffers and best-of-7 timing. Built
-# and run via run_matmul.sh.
+# and run via scripts/run_matmul.sh.
 # =============================================================================
 add_executable(matmul
-        experimentalAICodes/matmul.cpp
-        sme/SME-GEMMKernels1x4-symZAInOut.cpp
+        experiments/matmul.cpp
+        sme/sme-1x4-sym-zainout.cpp
 )
 
 target_compile_options(matmul PRIVATE

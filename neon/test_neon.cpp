@@ -1,5 +1,5 @@
 #include "test_neon.hpp"
-#include "GEMMKernels.hpp"
+#include "neon-8x12.hpp"
 #include "../common/utils.hpp"
 
 #include <iostream>

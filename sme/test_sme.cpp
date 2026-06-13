@@ -1,10 +1,10 @@
 #include "test_sme.hpp"
-#include "SME-GEMMKernels4x1.hpp"
-#include "SME-GEMMKernels2x2.hpp"
-#include "SME-GEMMKernels1x4.hpp"
-#include "SME-GEMMKernels1x4-sym.hpp"
-#include "SME-GEMMKernels1x4-symZAInOut.hpp"
-#include "SME-GEMMKernels4x1ZAPack.hpp"
+#include "sme-4x1.hpp"
+#include "sme-2x2.hpp"
+#include "sme-1x4.hpp"
+#include "sme-1x4-sym.hpp"
+#include "sme-1x4-sym-zainout.hpp"
+#include "sme-4x1-zapack.hpp"
 #include "../common/utils.hpp"
 
 #include <iostream>
@@ -53,7 +53,7 @@ namespace SMETest {
     };
 
     // Iteration policy:
-    //   run(k)            — flat 10, matches historical numbers in BENCHMARKS.md
+    //   run(k)            — flat 10, matches historical numbers in docs/BENCHMARKS.md
     //   run_comparison()  — bumped to 50 for stable kernel ordering
     //   profile()         — caller-controlled (main.cpp picks)
     static constexpr int kBenchIters      = 10;

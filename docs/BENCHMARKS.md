@@ -27,7 +27,7 @@ Compiler: LLVM/Clang `-O3 -mcpu=apple-m4`
 
 ## 2. Power & Energy Analysis
 
-Measurement tool: `powermetrics --samplers cpu_power,thermal`, 100 ms sampling interval, captured by `profile_power.sh` (combined CPU + GPU + ANE basis). All measurements at 2048³ × 100 iterations (~1.7 TFLOPs of work per run), single-thread, MacBook M4, no thermal pressure (Nominal across all runs).
+Measurement tool: `powermetrics --samplers cpu_power,thermal`, 100 ms sampling interval, captured by `scripts/profile_power.sh` (combined CPU + GPU + ANE basis). All measurements at 2048³ × 100 iterations (~1.7 TFLOPs of work per run), single-thread, MacBook M4, no thermal pressure (Nominal across all runs).
 
 ### 2.1 Our SME kernels (fresh, 2026-04-26)
 
@@ -60,7 +60,7 @@ Measurement tool: `powermetrics --samplers cpu_power,thermal`, 100 ms sampling i
 
 ### 2.4 Caveats
 
-- `profile_power.sh` Combined power on M4 macOS Sonoma+ aggregates CPU + GPU + ANE. The script's P-cluster / E-cluster regex matches an older powermetrics format and currently reports 0.0 W for those sub-totals (TODO MINOR). Combined is the figure used above.
+- `scripts/profile_power.sh` Combined power on M4 macOS Sonoma+ aggregates CPU + GPU + ANE. The script's P-cluster / E-cluster regex matches an older powermetrics format and currently reports 0.0 W for those sub-totals (TODO MINOR). Combined is the figure used above.
 - 100-iteration runs at 2048³ are short (1–2 s) on the AMX path — power averages may include 1–2 sample windows of startup/finish idle. The sense of the comparisons (4×1 < PyTorch < Accelerate efficiency) is robust; absolute J figures have a few-percent measurement noise.
 
 ---
@@ -287,7 +287,7 @@ This is ~11 % slower than the x4 baseline, even though IPC more than doubles (§
 
 ## 10. Instruments Profiling — Per-Kernel Microarch Analysis
 
-Measured with Instruments (CPU Counters template: `L1D_CACHE_MISS_LD`, `L1D_CACHE_MISS_ST`, `INST_ALL`). One library/kernel at a time, 100 iterations at 2048³, captured by `./profile.sh <name>`. Counter totals summed from `counters-profile` deltas. The same workload is then re-run under `profile_power.sh` for energy data (§2).
+Measured with Instruments (CPU Counters template: `L1D_CACHE_MISS_LD`, `L1D_CACHE_MISS_ST`, `INST_ALL`). One library/kernel at a time, 100 iterations at 2048³, captured by `./scripts/profile.sh <name>`. Counter totals summed from `counters-profile` deltas. The same workload is then re-run under `scripts/profile_power.sh` for energy data (§2).
 
 ### 10.0 Fresh per-kernel metrics (2026-04-26)
 

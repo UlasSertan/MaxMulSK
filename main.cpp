@@ -5,9 +5,9 @@
 #include <omp.h>
 
 #include "common/utils.hpp"
-#include "neon/GEMMKernels.hpp"
+#include "neon/neon-8x12.hpp"
 #include "neon/test_neon.hpp"
-#include "sme/SME-GEMMKernels4x1.hpp"
+#include "sme/sme-4x1.hpp"
 #include "sme/test_sme.hpp"
 
 using Clock = std::chrono::high_resolution_clock;
@@ -244,8 +244,8 @@ int main() {
 #endif  // FULL_SWEEP
 
     // ==========================================================
-    // PROFILING DRIVERS — uncomment exactly ONE for profile.sh /
-    // profile_power.sh runs (set FULL_SWEEP to 0 above).
+    // PROFILING DRIVERS — uncomment exactly ONE for scripts/profile.sh /
+    // scripts/profile_power.sh runs (set FULL_SWEEP to 0 above).
     // ==========================================================
     {
         [[maybe_unused]] constexpr std::size_t M = 2048, K = 2048, N = 2048;

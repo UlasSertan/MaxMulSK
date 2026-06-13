@@ -5,13 +5,16 @@ set -euo pipefail
 # benchmark of our SME 1x4SymZAInOut kernel vs Apple Accelerate.
 #
 # Usage:
-#   ./run_matmul.sh            # benchmark only
-#   ./run_matmul.sh --verify   # also run naive ijk reference and check both
+#   ./scripts/run_matmul.sh            # benchmark only
+#   ./scripts/run_matmul.sh --verify   # also run naive ijk reference and check both
 
 # Use CLion-bundled cmake if not on PATH
 if ! command -v cmake &>/dev/null; then
     export PATH="/Applications/CLion.app/Contents/bin/cmake/mac/aarch64/bin:$PATH"
 fi
+
+# Anchor to repo root so relative paths resolve regardless of caller's cwd
+cd "$(dirname "$0")/.."
 
 BUILD_DIR="cmake-build-release"
 BINARY="$BUILD_DIR/matmul"

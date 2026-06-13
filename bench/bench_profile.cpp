@@ -1,7 +1,7 @@
 // bench/bench_profile.cpp
 // Single-library, single-size, N-iteration driver for Instruments PMU /
 // powermetrics profiling. Mirrors the output format of SMETest::profile()
-// in sme/test_sme.cpp so profile.sh and profile_power.sh can reuse the
+// in sme/test_sme.cpp so scripts/profile.sh and scripts/profile_power.sh can reuse the
 // same parsers (looks for "GFLOPS" / "iters=" / "Threads:" lines).
 //
 // Usage:
