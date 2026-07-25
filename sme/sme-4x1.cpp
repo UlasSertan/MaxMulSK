@@ -414,6 +414,11 @@ namespace SMEKernels4x1 {
         const size_t M_step = 4 * SVL;
         const size_t N_step = 1 * SVL;
 
+        // Scratch for edge tiles: full 4*SVL × SVL output tile. Used when
+        // remaining rows < M_step or remaining cols < N_step (BUG-4x1-SMALL-M).
+        AlignedBuffer C_scratch(static_cast<float*>(
+            std::aligned_alloc(64, M_step * N_step * sizeof(float))));
+
         for (size_t n = 0; n < N; n += N_tile) {
             size_t nc = std::min(N_tile, N - n);
             for (size_t k = 0; k < K; k += K_tile) {
@@ -422,15 +427,66 @@ namespace SMEKernels4x1 {
 
                 for (size_t m = 0; m < M; m += M_tile) {
                     size_t mc = std::min(M_tile, M - m);
+
+                    // pack_A only writes panels for rows < mc. When mc < M_tile
+                    // the upper panels of the interleaved layout stay untouched
+                    // and the micro-kernel would read stale/uninitialized data
+                    // (results land in discarded scratch rows, but never read
+                    // uninitialized memory). Zero first — edge strips only,
+                    // aligned sizes never pay this.
+                    if (mc < M_tile) {
+                        svbool_t pg_z = svptrue_b32();
+                        svfloat32_t zero = svdup_f32(0.0f);
+                        float* zp = packed_A.get();
+                        for (size_t i = 0; i < kc * (4 * SVL); i += SVL)
+                            svst1_f32(pg_z, zp + i, zero);
+                    }
+
                     pack_A_streaming(A, packed_A.get(), mc, kc, m, k, K);
 
                     for (size_t jr = 0; jr < nc; jr += N_step) {
+                        size_t n_rem = nc - jr;
                         for (size_t ir = 0; ir < mc; ir += M_step) {
-                            micro_kernel_4x1(
-                                packed_A.get() + ir * kc,
-                                packed_B.get() + jr * kc,
-                                C + (m + ir) * N + (n + jr),
-                                kc, N);
+                            size_t m_rem = mc - ir;
+
+                            bool m_tail = m_rem < M_step;
+                            bool n_tail = n_rem < N_step;
+
+                            if (!m_tail && !n_tail) {
+                                // Full tile — write directly into C (hot path)
+                                micro_kernel_4x1(
+                                    packed_A.get() + ir * kc,
+                                    packed_B.get() + jr * kc,
+                                    C + (m + ir) * N + (n + jr),
+                                    kc, N);
+                            } else {
+                                // Edge tile — compute into scratch, scatter the
+                                // valid rows × cols back into C
+                                size_t rows = std::min(m_rem, M_step);
+                                size_t cols = std::min(n_rem, N_step);
+
+                                // Zero scratch with SVE stores (avoids __arm_sc_memset)
+                                {
+                                    svbool_t pg_z = svptrue_b32();
+                                    svfloat32_t zero = svdup_f32(0.0f);
+                                    float* zp = C_scratch.get();
+                                    for (size_t i = 0; i < M_step * N_step; i += SVL)
+                                        svst1_f32(pg_z, zp + i, zero);
+                                }
+
+                                micro_kernel_4x1(
+                                    packed_A.get() + ir * kc,
+                                    packed_B.get() + jr * kc,
+                                    C_scratch.get(),
+                                    kc, N_step);
+
+                                float* C_dst = C + (m + ir) * N + (n + jr);
+                                const float* src = C_scratch.get();
+                                for (size_t row = 0; row < rows; row++) {
+                                    for (size_t col = 0; col < cols; col++)
+                                        C_dst[row * N + col] += src[row * N_step + col];
+                                }
+                            }
                         }
                     }
                 }

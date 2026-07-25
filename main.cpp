@@ -210,7 +210,7 @@ int main() {
     // For Instruments / power profiling, set FULL_SWEEP to 0 and
     // uncomment exactly one profile() call below.
     // ==========================================================
-#define FULL_SWEEP 0
+#define FULL_SWEEP 1
 #if FULL_SWEEP
 
     // --- NEON ---
@@ -235,7 +235,7 @@ int main() {
     SMETest::run(SMETest::Kernel::K1x4);
     SMETest::run(SMETest::Kernel::K1x4Sym);
     SMETest::run(SMETest::Kernel::K1x4SymZAInOut);
-    // SMETest::run(SMETest::Kernel::K4x1ZAPack); // disabled: heap-corrupt crash at 32^3 (TODO §2)
+    SMETest::run(SMETest::Kernel::K4x1ZAPack);
 
     // --- Cross-kernel comparison + 4x1 phase breakdown ---
     SMETest::run_comparison();
@@ -255,7 +255,6 @@ int main() {
         // SMETest::profile(SMETest::Kernel::K2x2,           M, K, N, iters);
         // SMETest::profile(SMETest::Kernel::K1x4,           M, K, N, iters);
         // SMETest::profile(SMETest::Kernel::K1x4Sym,        M, K, N, iters);
-        SMETest::run(SMETest::Kernel::K1x4SymZAInOut); // TEMP: butterfly K_inner=40 baseline
         // SMETest::profile(SMETest::Kernel::K1x4SymZAInOut, M, K, N, iters);
         // SMETest::profile(SMETest::Kernel::K4x1ZAPack,     M, K, N, iters);
     }

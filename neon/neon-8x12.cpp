@@ -345,7 +345,10 @@ namespace GEMM {
                  size_t M, size_t N, size_t K) {
         constexpr size_t Kc       = 1024;
         constexpr size_t Mc       = 64;
-        constexpr size_t Nc_cache = 1024; // cache tile width, must be multiple of 12
+        // Cache tile width — MUST be a multiple of 12 (kernel writes 12-col
+        // panels; a non-multiple lets the last panel of each j-block overlap
+        // the next block's columns, double-accumulating them → BUG-NEON-2X).
+        constexpr size_t Nc_cache = 1020; // 85 × 12
 
         const size_t M_aligned = (M / 8)  * 8;
         const size_t N_aligned = (N / 12) * 12;

@@ -166,15 +166,10 @@ int main() {
 
     std::cout << std::left << std::setw(W_SIZE) << "Size (MxKxN)"
               << std::setw(W_TAG) << "Tag";
-    hdr("NEON GF"); hdr("SME 4x1"); hdr("SME 4x1 ZP"); hdr("SME 2x2"); hdr("Accel GF"); hdr("OBlas GF");
+    hdr("NEON GF"); hdr("SME 4x1"); hdr("4x1 ZP"); hdr("SME 2x2");
+    hdr("Accel GF"); hdr("OBlas GF"); hdr("vs Accel"); hdr("vs OBlas");
     std::cout << std::right << std::setw(9) << "MaxDiff\n";
-    std::cout << std::string(W_SIZE + W_TAG + W_NUM * 6 + 9, '-') << "\n";
-
-    // SME 4x1 / ZAPack micro-kernels emit a fixed 4*SVL × SVL output tile per
-    // call. For M < 4*SVL (= 64 on M4) tiles 1..3 land beyond C[M*N) and corrupt
-    // the heap. Pad SME C buffers to absorb the overrun. TODO §0/§2: add a
-    // scratch-buffer fallback to 4x1/ZAPack so this isn't needed.
-    constexpr size_t SME_TILE_M = 64;
+    std::cout << std::string(W_SIZE + W_TAG + W_NUM * 8 + 9, '-') << "\n";
 
     for (const auto& c : cases) {
         const int iters = iters_for(std::max({c.M, c.N, c.K}));
@@ -184,7 +179,9 @@ int main() {
         fill_random(A);
         fill_random(B);
 
-        const size_t sme_C_floats = std::max(c.M, SME_TILE_M) * c.N;
+        // All SME kernels have scratch-buffer edge-tile fallbacks now — no
+        // C padding needed (BUG-4x1-SMALL-M / BUG-ZAPACK-WRONG fixed).
+        const size_t sme_C_floats = c.M * c.N;
 
         // SME 4x1 measurement
         std::vector<float> C_sme41(sme_C_floats, 0.0f);

@@ -88,22 +88,9 @@ namespace SMETest {
         }
     }
 
-    // Kernels without a scratch-buffer fallback overflow C when M (or N) is
-    // smaller than the micro-kernel's output tile. Only 2x2 has a full
-    // scratch-buffer path today (TODO: add to 4x1 / 1x4 / ZAPack).
-    //   4x1 writes 4*SVL × SVL tile  →  needs M >= 64
-    //   1x4 writes SVL × 4*SVL tile  →  needs N >= 64
-    //   ZAPack same writeback path as 4x1
-    static bool kernel_can_handle(Kernel k, std::size_t M, std::size_t /*K*/, std::size_t N) {
-        constexpr std::size_t SVL = 16; // streaming SVL on M4
-        switch (k) {
-            case Kernel::K4x1:        return M >= 4 * SVL;
-            case Kernel::K1x4:        return N >= 4 * SVL;
-            case Kernel::K1x4Sym:        return N >= 4 * SVL;
-            case Kernel::K1x4SymZAInOut: return N >= 4 * SVL;
-            case Kernel::K4x1ZAPack:     return M >= 4 * SVL;
-            case Kernel::K2x2:           return true;
-        }
+    // All kernels now have a scratch-buffer fallback for edge tiles
+    // (BUG-4x1-SMALL-M / BUG-ZAPACK-WRONG fixed), so any M/K/N is legal.
+    static bool kernel_can_handle(Kernel /*k*/, std::size_t /*M*/, std::size_t /*K*/, std::size_t /*N*/) {
         return true;
     }
 
@@ -516,10 +503,9 @@ namespace SMETest {
     // -array kernels a warmer L2/L3. Iteration counts are sized so each kernel
     // gets ~stable wall time; small sizes get more iters to outrun timer noise.
     void run_comparison() {
-        // ZAPack is excluded — it has a known wrong-result/heap-corrupt bug at
-        // small sizes (TODO §2). Re-add once fixed.
         const Kernel all[] = {
-            Kernel::K4x1, Kernel::K2x2, Kernel::K1x4, Kernel::K1x4Sym, Kernel::K1x4SymZAInOut
+            Kernel::K4x1, Kernel::K2x2, Kernel::K1x4, Kernel::K1x4Sym,
+            Kernel::K1x4SymZAInOut, Kernel::K4x1ZAPack
         };
         constexpr int N_K = sizeof(all) / sizeof(all[0]);
 
@@ -532,7 +518,7 @@ namespace SMETest {
         };
 
         std::cout << "\n=====================================================\n";
-        std::cout << "  Side-by-side: 4x1 vs 2x2 vs 1x4 vs 1x4-sym vs 1x4ZAIO   (interleaved)\n";
+        std::cout << "  Side-by-side: 4x1 vs 2x2 vs 1x4 vs 1x4-sym vs 1x4ZAIO vs 4x1-ZAPack   (interleaved)\n";
         std::cout << "=====================================================\n";
 
         std::cout << std::left << std::setw(10) << "  Size"
@@ -543,8 +529,9 @@ namespace SMETest {
                   << std::setw(12) << "1x4"
                   << std::setw(12) << "1x4-sym"
                   << std::setw(12) << "1x4ZAIO"
+                  << std::setw(12) << "4x1-ZAP"
                   << std::setw(12) << "Winner" << "\n";
-        std::cout << "  " << std::string(90, '-') << "\n";
+        std::cout << "  " << std::string(102, '-') << "\n";
 
         for (auto& tc : kComparisonCases) {
             const int iters = iters_for_size(std::max({tc.M, tc.K, tc.N}));

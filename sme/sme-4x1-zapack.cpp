@@ -28,7 +28,13 @@ namespace SMEKernels4x1ZAPack {
 
         for (size_t m = 0; m < M_curr; m += SVL) {
             const float* row_base = A + (m + curr_row) * K + curr_col;
-            size_t p = m / SVL; // panel index within group (0-3)
+            // Panel index wraps within a 4-panel group; each group of 4*SVL
+            // rows gets its own contiguous GS*K_curr block. (BUG-ZAPACK-WRONG:
+            // the unwrapped p*SVL offset overflowed into the next k-step's
+            // group for p >= 4, overwriting already-packed data — plain 4x1
+            // never hit this because its M_tile equals one group.)
+            size_t p = (m / SVL) % 4;
+            float* group_base = packed_A + (m / GS) * GS * K_curr;
             size_t k = 0;
             size_t rows_here = std::min(SVL, M_curr - m);
 
@@ -75,7 +81,7 @@ namespace SMEKernels4x1ZAPack {
                 svld1_hor_za32(0, 15, p15, row_base + k + 15*K);
 
                 // Read 16 columns as vertical slices → transposed tile in packed_A layout
-                float* out = packed_A + k * GS + p * SVL;
+                float* out = group_base + k * GS + p * SVL;
                 svst1_ver_za32(0, 0,  pg, out +  0*GS);
                 svst1_ver_za32(0, 1,  pg, out +  1*GS);
                 svst1_ver_za32(0, 2,  pg, out +  2*GS);
@@ -101,7 +107,7 @@ namespace SMEKernels4x1ZAPack {
                 for (size_t row = 0; row < rows_here; row++)
                     tmp[row] = row_base[k + row * K];
                 svfloat32_t col_vec = svld1_f32(pg, tmp);
-                svst1_f32(pg, packed_A + k * GS + p * SVL, col_vec);
+                svst1_f32(pg, group_base + k * GS + p * SVL, col_vec);
                 svst1_f32(pg, tmp, svdup_f32(0.0f));
             }
         }
@@ -350,6 +356,11 @@ namespace SMEKernels4x1ZAPack {
         const size_t M_step = 4 * SVL;
         const size_t N_step = 1 * SVL;
 
+        // Scratch for edge tiles: full 4*SVL × SVL output tile (same fix as
+        // BUG-4x1-SMALL-M in the plain 4x1 driver).
+        AlignedBuffer C_scratch(static_cast<float*>(
+            std::aligned_alloc(64, M_step * N_step * sizeof(float))));
+
         for (size_t n = 0; n < N; n += N_tile) {
             size_t nc = std::min(N_tile, N - n);
             for (size_t k = 0; k < K; k += K_tile) {
@@ -358,15 +369,64 @@ namespace SMEKernels4x1ZAPack {
 
                 for (size_t m = 0; m < M; m += M_tile) {
                     size_t mc = std::min(M_tile, M - m);
+
+                    // A partial last group leaves its upper panels unwritten by
+                    // pack_A; zero that group's region so the micro-kernel
+                    // never reads stale/uninitialized data (results land in
+                    // discarded scratch rows). Edge strips only.
+                    if (mc % M_step != 0) {
+                        svbool_t pg_z = svptrue_b32();
+                        svfloat32_t zero = svdup_f32(0.0f);
+                        float* zp = packed_A.get() + (mc / M_step) * M_step * kc;
+                        for (size_t i = 0; i < M_step * kc; i += SVL)
+                            svst1_f32(pg_z, zp + i, zero);
+                    }
+
                     pack_A_streaming(A, packed_A.get(), mc, kc, m, k, K);
 
                     for (size_t jr = 0; jr < nc; jr += N_step) {
+                        size_t n_rem = nc - jr;
                         for (size_t ir = 0; ir < mc; ir += M_step) {
-                            micro_kernel_4x1(
-                                packed_A.get() + ir * kc,
-                                packed_B.get() + jr * kc,
-                                C + (m + ir) * N + (n + jr),
-                                kc, N);
+                            size_t m_rem = mc - ir;
+
+                            bool m_tail = m_rem < M_step;
+                            bool n_tail = n_rem < N_step;
+
+                            if (!m_tail && !n_tail) {
+                                // Full tile — write directly into C (hot path)
+                                micro_kernel_4x1(
+                                    packed_A.get() + ir * kc,
+                                    packed_B.get() + jr * kc,
+                                    C + (m + ir) * N + (n + jr),
+                                    kc, N);
+                            } else {
+                                // Edge tile — compute into scratch, scatter the
+                                // valid rows × cols back into C
+                                size_t rows = std::min(m_rem, M_step);
+                                size_t cols = std::min(n_rem, N_step);
+
+                                // Zero scratch with SVE stores (avoids __arm_sc_memset)
+                                {
+                                    svbool_t pg_z = svptrue_b32();
+                                    svfloat32_t zero = svdup_f32(0.0f);
+                                    float* zp = C_scratch.get();
+                                    for (size_t i = 0; i < M_step * N_step; i += SVL)
+                                        svst1_f32(pg_z, zp + i, zero);
+                                }
+
+                                micro_kernel_4x1(
+                                    packed_A.get() + ir * kc,
+                                    packed_B.get() + jr * kc,
+                                    C_scratch.get(),
+                                    kc, N_step);
+
+                                float* C_dst = C + (m + ir) * N + (n + jr);
+                                const float* src = C_scratch.get();
+                                for (size_t row = 0; row < rows; row++) {
+                                    for (size_t col = 0; col < cols; col++)
+                                        C_dst[row * N + col] += src[row * N_step + col];
+                                }
+                            }
                         }
                     }
                 }
