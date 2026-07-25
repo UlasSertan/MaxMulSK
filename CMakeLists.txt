@@ -42,7 +42,7 @@ if(NOT DEFINED CMAKE_CXX_COMPILER)
     endif()
 endif()
 
-project(MatrixLibrary LANGUAGES C CXX)
+project(MaxMulSK LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -60,7 +60,7 @@ if(NOT LIBOMP_INCLUDE_DIR OR NOT LIBOMP_LIBRARY)
         "and -DLIBOMP_LIBRARY=...")
 endif()
 
-add_executable(MatrixLibrary
+add_executable(MaxMulSK
         main.cpp
         neon/neon-8x12.cpp
         neon/test_neon.cpp
@@ -73,7 +73,7 @@ add_executable(MatrixLibrary
         sme/test_sme.cpp
 )
 
-target_compile_options(MatrixLibrary PRIVATE
+target_compile_options(MaxMulSK PRIVATE
         -O3 -Wall -Wextra
         -mcpu=apple-m4
         -fopenmp
@@ -89,12 +89,12 @@ set_source_files_properties(sme/sme-4x1.cpp sme/sme-2x2.cpp sme/sme-1x4.cpp sme/
         COMPILE_OPTIONS "-march=armv8.7-a+sme+sme2"
 )
 
-target_include_directories(MatrixLibrary PRIVATE
+target_include_directories(MaxMulSK PRIVATE
         ${LIBOMP_INCLUDE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(MatrixLibrary PRIVATE
+target_link_libraries(MaxMulSK PRIVATE
         ${LIBOMP_LIBRARY}
 )
 

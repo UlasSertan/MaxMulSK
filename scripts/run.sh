@@ -18,7 +18,7 @@ command -v cmake &>/dev/null || {
 cd "$(dirname "$0")/.."
 
 BUILD_DIR="cmake-build-release"
-BINARY="$BUILD_DIR/MatrixLibrary"
+BINARY="$BUILD_DIR/MaxMulSK"
 JOBS=$(sysctl -n hw.logicalcpu 2>/dev/null || nproc)
 
 echo "==> Configuring..."

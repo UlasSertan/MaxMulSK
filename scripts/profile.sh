@@ -32,7 +32,7 @@ command -v cmake &>/dev/null || {
 cd "$(dirname "$0")/.."
 
 BUILD_DIR="cmake-build-release"
-BINARY="$BUILD_DIR/MatrixLibrary"
+BINARY="$BUILD_DIR/MaxMulSK"
 TEMPLATE="GemmTemplate.tracetemplate"
 OUT_DIR="traces"
 JOBS=$(sysctl -n hw.logicalcpu 2>/dev/null || nproc)
@@ -100,7 +100,7 @@ import os
 # GemmTemplate counter order — must match the template's counter list.
 # If you edit the template's counters, update this list in the same order.
 COUNTER_LABELS = ["L1D_CACHE_MISS_LD", "L1D_CACHE_MISS_ST", "INST_ALL"]
-TARGET_PROCESS = os.environ.get("TARGET_PROCESS", "MatrixLibrary")
+TARGET_PROCESS = os.environ.get("TARGET_PROCESS", "MaxMulSK")
 
 def xctrace_export(*args):
     return subprocess.run(
@@ -131,7 +131,7 @@ except Exception as e:
     print("\n".join(lines))
     sys.exit(0)
 
-# Build process-id → name map (for filtering to MatrixLibrary only)
+# Build process-id → name map (for filtering to MaxMulSK only)
 proc_name = {}
 for p in root.iter("process"):
     pid = p.attrib.get("id")

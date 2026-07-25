@@ -34,7 +34,7 @@ command -v cmake &>/dev/null || {
 cd "$(dirname "$0")/.."
 
 BUILD_DIR="cmake-build-release"
-BINARY="$BUILD_DIR/MatrixLibrary"
+BINARY="$BUILD_DIR/MaxMulSK"
 OUT_DIR="traces"
 JOBS=$(sysctl -n hw.logicalcpu 2>/dev/null || nproc)
 SAMPLE_INTERVAL_MS=100   # 10 Hz — fine enough to catch a multi-second run

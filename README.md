@@ -1,4 +1,4 @@
-# MatrixLibrary
+# MaxMulSK
 
 Hi, I'm Ulaş, a computer engineering student.
 
@@ -112,7 +112,7 @@ The 1×4 (B-inner) kernel is the mathematical transpose of 4×1 (A-inner) — sa
 ## Structure
 
 ```
-MatrixLibrary/
+MaxMulSK/
 ├── common/
 │   ├── utils.hpp                  # fill_random, check_correctness, compute_gflops, scalar reference
 │   └── Matrix.hpp                 # Generic matrix class (addition, subtraction)
