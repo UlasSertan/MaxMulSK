@@ -1,4 +1,4 @@
-#!/opt/anaconda3/bin/python
+#!/usr/bin/env python3
 # bench/bench_python.py
 # Single-threaded GEMM benchmark: NumPy vs PyTorch (float32)
 # Run via bench/run_bench.sh or directly.

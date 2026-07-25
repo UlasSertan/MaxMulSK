@@ -126,11 +126,20 @@ MatrixLibrary/
 ## Requirements
 
 - Apple M4 (SME/SME2 required for the SME kernels)
-- LLVM/Clang via Homebrew (`/opt/homebrew/opt/llvm`)
-- libomp (`/opt/homebrew/opt/libomp`)
+- LLVM/Clang — `brew install llvm` (Apple's bundled Clang lacks SME/SME2 intrinsics)
+- libomp — `brew install libomp`
 - CMake 3.30+
-- OpenBLAS (`brew install openblas`) — for `bench_compare` only
-- Anaconda Python with `numpy` and `torch` — for `bench_python.py` only
+- OpenBLAS — `brew install openblas`, for `bench_compare` only (loaded via `dlopen`, optional at runtime)
+- Python with `numpy` and `torch` — for `bench_python.py` only
+
+The build discovers the toolchain rather than hardcoding paths. Override any of it:
+
+```bash
+cmake -B build -DCMAKE_CXX_COMPILER=/path/to/clang++   # different compiler
+HOMEBREW_PREFIX=/custom/prefix cmake -B build          # non-standard Homebrew
+OPENBLAS_DYLIB=/path/to/libopenblas.dylib ./bench/run_bench.sh
+PYTHON=/opt/anaconda3/bin/python ./bench/run_bench.sh  # interpreter with numpy+torch
+```
 
 ## Build & Run
 
@@ -174,3 +183,23 @@ Running `./scripts/run.sh` executes NEON unit tests, NEON speed sweep, all six S
 - [ ] Re-profile 1×4-sym vs 4×1 with PMU counters (explain the B-inner turnaround)
 - [ ] SME multi-threading
 - [ ] Rust scheduling layer for heterogeneous work distribution (P-core vs E-core)
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
+
+```
+Copyright 2026 Ulaş Sertan KEMEÇ
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```

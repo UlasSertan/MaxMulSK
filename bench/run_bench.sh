@@ -3,8 +3,16 @@ set -euo pipefail
 
 # Use CLion-bundled cmake if not on PATH
 if ! command -v cmake &>/dev/null; then
-    export PATH="/Applications/CLion.app/Contents/bin/cmake/mac/aarch64/bin:$PATH"
+    # Fall back to a CLion-bundled cmake if one is installed
+    for _c in /Applications/CLion*.app/Contents/bin/cmake/mac/*/bin \
+              "$HOME"/Applications/CLion*.app/Contents/bin/cmake/mac/*/bin; do
+        [ -d "$_c" ] && export PATH="$_c:$PATH" && break
+    done
 fi
+command -v cmake &>/dev/null || {
+    echo "error: cmake not found. Install it with 'brew install cmake'." >&2
+    exit 1
+}
 
 # Run from repo root regardless of where the script is called from
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -31,4 +39,12 @@ VECLIB_MAXIMUM_THREADS=1 OPENBLAS_NUM_THREADS=1 "$BINARY"
 echo ""
 echo "==> Running Python benchmark (NumPy + PyTorch, single-threaded)..."
 echo ""
-/opt/anaconda3/bin/python "$REPO_ROOT/bench/bench_python.py"
+# Needs an interpreter with numpy and torch. Override with e.g.
+#   PYTHON=/opt/anaconda3/bin/python ./bench/run_bench.sh
+PYTHON="${PYTHON:-python3}"
+if "$PYTHON" -c "import numpy, torch" >/dev/null 2>&1; then
+    "$PYTHON" "$REPO_ROOT/bench/bench_python.py"
+else
+    echo "  [skip] '$PYTHON' does not have both numpy and torch installed."
+    echo "         Re-run with: PYTHON=/path/to/python ./bench/run_bench.sh"
+fi

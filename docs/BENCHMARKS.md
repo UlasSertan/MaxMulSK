@@ -4,9 +4,40 @@ Platform: Apple Silicon (M4), macOS
 Problem size: M=1024, N=1020, K=1024 (unless noted)  
 Compiler: LLVM/Clang `-O3 -mcpu=apple-m4`
 
+## How to read this document
+
+This file is a running lab notebook, not a snapshot. Measurements were taken on
+different dates against different builds of the kernels, and some later results
+overturned earlier conclusions. Rather than deleting superseded work — the wrong
+turns are often the most informative part — every section is dated and labelled:
+
+| Label | Meaning |
+|---|---|
+| **CURRENT** | Reflects the code as it stands. Trust these numbers. |
+| **STANDS** | Older measurement, but nothing since has invalidated it. |
+| **SUPERSEDED** | Numbers replaced by a later run. Kept for the progression; do not quote. |
+| **PARTLY OVERTURNED** | The data is real, but a later result contradicts the conclusion drawn from it. Read the linked section too. |
+
+If you want only the current state of the project, read **§0** and stop.
+Everything after it is history, in the order it happened.
+
+**Timeline of measurement dates** (from git history):
+
+| Date | What was measured |
+|---|---|
+| 2026-04-09 | NEON kernel complete — cache, instruction, prefetch, threading analysis (§3–§6) |
+| 2026-04-10 | First single-thread competitor comparison |
+| 2026-04-15 | SME optimization sprint — 4×1 + 2×2, first PMU profiling (§8, §10.1) |
+| 2026-04-19 | SME 1×4 B-inner experiment (§9) |
+| 2026-04-26 | ZAPack kernel, energy/thermal tooling, full re-measurement (§2, §8, §10.0) |
+| 2026-06-10 | 1×4-sym and 1×4ZAIO kernels added |
+| 2026-07-25 | Correctness bug-fix session, full re-measurement (§0) — **current** |
+
 ---
 
-## 0. 2026-07-25 Refresh — Bug-Fix Session (current numbers)
+## 0. 2026-07-25 Refresh — Bug-Fix Session
+
+**Measured:** 2026-07-25 · **CURRENT**
 
 All three outstanding correctness bugs were fixed this session with **zero hot-path cost** (aligned sizes take the identical instruction stream as before):
 
@@ -93,6 +124,8 @@ Size (MxKxN)          Tag                  NEON GF   SME 4x1    4x1 ZP   SME 2x2
 
 ## 1. Performance Progression
 
+**Measured:** 2026-04-09 → 2026-07-25 (accumulated) · **CURRENT** — peak column reflects the latest run
+
 | Implementation | GFLOPS | Notes |
 |---|---|---|
 | Naive scalar | ~2 | Triple-loop, no optimization |
@@ -113,6 +146,8 @@ Size (MxKxN)          Tag                  NEON GF   SME 4x1    4x1 ZP   SME 2x2
 ---
 
 ## 2. Power & Energy Analysis
+
+**Measured:** 2026-04-26 · **STANDS** — not re-measured on 2026-07-25. The bug fixes were edge-path-only, so the aligned-size energy figures here should still hold, but they predate the 1×4-sym / ZAPack results in §0.1 and cover only three kernels.
 
 Measurement tool: `powermetrics --samplers cpu_power,thermal`, 100 ms sampling interval, captured by `scripts/profile_power.sh` (combined CPU + GPU + ANE basis). All measurements at 2048³ × 100 iterations (~1.7 TFLOPs of work per run), single-thread, MacBook M4, no thermal pressure (Nominal across all runs).
 
@@ -154,6 +189,8 @@ Measurement tool: `powermetrics --samplers cpu_power,thermal`, 100 ms sampling i
 
 ## 3. Cache Behavior
 
+**Measured:** 2026-04-09 (NEON era) · **STANDS**
+
 > Note: Direct cycle counting (`FIXED_CYCLES`) is unavailable on Apple Silicon due to OS-level PMU restrictions. Analysis relies on instruction counts, wall-clock timing, and cache event counters — consistent with Apple's recommended methodology.
 
 ### NEON — L1D Cache
@@ -173,6 +210,8 @@ Miss intensity is stable and narrow-band over time — no cache thrashing, no id
 
 ## 4. Instruction Profile
 
+**Measured:** 2026-04-09 (NEON era) · **STANDS**
+
 | Kernel | Instructions per GEMM | Characteristic |
 |---|---|---|
 | NEON | ~337M | Low instruction-to-FLOP ratio; effective SIMD + unrolling |
@@ -183,6 +222,8 @@ The NEON kernel's stable, high instruction intensity throughout execution indica
 ---
 
 ## 5. Micro-Kernel Prefetch Interleaving
+
+**Measured:** 2026-04-09 (NEON era) · **STANDS**
 
 Testing three variants of the 8×12 NEON micro-kernel inner loop:
 
@@ -201,6 +242,8 @@ Testing three variants of the 8×12 NEON micro-kernel inner loop:
 ---
 
 ## 6. Threading Analysis
+
+**Measured:** 2026-04-09 · **STANDS** — NEON multi-thread only; SME remains single-threaded (roadmap item)
 
 ### OpenMP Structure
 
@@ -237,9 +280,20 @@ The remaining gap to theoretical is best closed at a higher level — a Rust sch
 
 ## 7. Packing & Memory Strategy
 
-- **Block sizes (NEON):** Mc=64, Kc=256. Chosen to keep the working set (packed A panel + packed B panel) resident in L1/L2.
-- **Block sizes (SME 4×1):** M_tile=64, K_tile=2048, N_tile=1024. Larger K_tile exploits ZA accumulator's ability to hold partial results without writeback.
-- **Block sizes (SME 2×2):** M_tile=256, K_tile=2048, N_tile=512.
+**Measured:** 2026-04-09 → 2026-04-15 · **STANDS** (tile constants below corrected 2026-07-25 to match the code)
+
+Tile constants as of 2026-07-25 (verified against the sources — the earlier
+revision of this section quoted stale values for NEON `Kc` and SME 2×2):
+
+| Kernel | Tiling |
+|---|---|
+| NEON | `Mc=64`, `Kc=1024`, `Nc_cache=1020`. Keeps the working set (packed A + packed B panel) resident in L1/L2. `Nc_cache` **must** stay a multiple of 12 — see BUG-NEON-2X in TODO.md. |
+| SME 4×1 | `M_tile=64`, `K_tile=2048`, `N_tile=1024`. Large K_tile exploits ZA's ability to hold partial results without writeback. |
+| SME 2×2 | `M_tile=64`, `K_tile=1024`, `N_tile=512`. |
+| SME 1×4 / 1×4-sym | `M_tile=1024`, `K_tile=2048`, `N_tile=64` — transposed shape, since B is the inner-packed operand. |
+| SME 1×4ZAIO | `M_tile=1024`, `N_tile=128`, `K_inner_tile=40`. K is packed in full; the inner tile is the ZA-resident accumulation chunk (sweep in the source header). |
+| SME 4×1 ZAPack | `M_tile=128`, `K_tile=1024`, `N_tile=512`. The wider M_tile is what exposed the packing bug fixed on 2026-07-25. |
+
 - **SIMD transpose (`transpose_8x4`):** Packs A into a layout the micro-kernel reads linearly, maximizing L1 bandwidth utilization and eliminating gather-load patterns.
 - **Store-to-Load Forwarding:** "A-inner-packing" (current structure) outperforms the BLIS-style "A-above-B" hierarchy on Apple Silicon.
 
@@ -250,6 +304,8 @@ Tested BLIS-style "A-above-B" cache hierarchy on Apple Silicon P-cores. Contrary
 ---
 
 ## 8. SME Optimization & Kernel Comparison
+
+**Measured:** 2026-04-15 (sprint) + 2026-04-26 (tables) · **SUPERSEDED by §0.1 / §0.2** — these tables predate the 1×4-sym and 1×4ZAIO kernels, and ran against builds carrying the three correctness bugs fixed on 2026-07-25 (the large MaxDiff values below are that NEON bug). Kept for the optimization progression; quote §0 instead.
 
 ### Optimization Sprint Results (2026-04-15)
 
@@ -342,6 +398,8 @@ Size (MxKxN)         Tag             NEON   SME 4x1  ZAPack   SME 2x2   Accel   
 
 ## 9. SME 1×4 B-Inner Packing — Experimental Variant
 
+**Measured:** 2026-04-19 · **PARTLY OVERTURNED** — the measurements are sound, but the conclusion that B-inner loses to A-inner no longer holds: 1×4-sym now leads at 4096³ (§0.1). Read alongside §10's caveat.
+
 ### Hypothesis
 The 4×1 kernel uses A-inner packing (single 4·SVL wide A panel reused across N) and loads 4 A-panels + 1 B-panel per k-step. The 1×4 variant is its transpose: B-inner packing (single A panel per m-step, 4·SVL wide B panel reused across M), loading 1 A + 4 B per k-step. By symmetry we expected similar throughput — same total loads per k-step, same FMOPA count, same output-tile area.
 
@@ -359,13 +417,13 @@ Both sides loaded with a single `svld1_f32_x4` per k-step — a load pattern str
 
 ### Current state — x1 interleaved loads (experimental code on disk)
 
-The file `SME-GEMMKernelsExperimental.cpp` now ships the x1-loads variant — the rescue experiment described in §10.1 was left in place as the live code so the tradeoff is reproducible. Measured result:
+The file `sme/sme-1x4.cpp` (named `SME-GEMMKernelsExperimental.cpp` at the time of this measurement) ships the x1-loads variant — the rescue experiment described in §10.2 was left in place as the live code so the tradeoff is reproducible. Measured result:
 
 | Kernel | 2048³ GFLOPS | ms/iter |
 |---|---|---|
 | SME 1×4 (B-inner, x1 interleaved — current) | 1018.6 | 16.87 |
 
-This is ~11 % slower than the x4 baseline, even though IPC more than doubles (§10.1). The x4 number (~1148) is retained above as the fair symmetric comparison against 4×1; the x1 number (~1018) is what you get if you build and run the repo today.
+This is ~11 % slower than the x4 baseline, even though IPC more than doubles (§10.2). The x4 number (~1148) is retained above as the fair symmetric comparison against 4×1; the x1 number (~1018) is what you get if you build and run the repo today.
 
 ### Edge-tile handling
 1×4's N_step = 4·SVL = 64 columns. Matrices with N not divisible by 64 would cause OOB writes in the micro-kernel. Adopted the scratch-buffer pattern from the 2×2 kernel (see TODO BUG-2x2-1): the micro-kernel always writes a full 16×64 tile into a scratch buffer, the driver scatters only the valid rows×cols portion back into C with accumulation. Zero overhead on the aligned hot path.
@@ -373,6 +431,8 @@ This is ~11 % slower than the x4 baseline, even though IPC more than doubles (§
 ---
 
 ## 10. Instruments Profiling — Per-Kernel Microarch Analysis
+
+**Measured:** 2026-04-15 (§10.1) + 2026-04-26 (§10.0) · **PARTLY OVERTURNED** — the counter data and the FMOPA-latency mechanism still explain why B-inner *was* hard. The headline conclusion ("A-inner is the only winning geometry") is contradicted by §0.1, where the B-inner 1×4-sym kernel wins at 4096³. Re-profiling to explain the reversal is an open roadmap item.
 
 Measured with Instruments (CPU Counters template: `L1D_CACHE_MISS_LD`, `L1D_CACHE_MISS_ST`, `INST_ALL`). One library/kernel at a time, 100 iterations at 2048³, captured by `./scripts/profile.sh <name>`. Counter totals summed from `counters-profile` deltas. The same workload is then re-run under `scripts/profile_power.sh` for energy data (§2).
 
@@ -431,9 +491,9 @@ FMOPA (SVE outer-product) has long execution latency (~6–8 cycles on M4) with 
 
 The 4×1 kernel's "extra" instructions are not overhead — they're latency hiders that happened to fall into a scheduling-friendly position.
 
-### 10.1 The Instruction Tax Trade-off (1x4 Interleaving Experiment)
+### 10.2 The Instruction Tax Trade-off (1x4 Interleaving Experiment)
 
-To test the `1x4` IPC collapse hypothesis, the experimental kernel was rewritten to replace the grouped `svld1_f32_x4` B-load with four independent `svld1_f32` loads (`x1`), each issued inline between successive `svmopa` instructions. This eliminated the register-contiguity requirement of x4 loads and let the x1 loads fall into the 6–8 cycle execution shadow of FMOPA, with a double-buffered `A` panel removing load-use stalls. This x1-loads variant is what currently lives in `SME-GEMMKernelsExperimental.cpp`.
+To test the `1x4` IPC collapse hypothesis, the experimental kernel was rewritten to replace the grouped `svld1_f32_x4` B-load with four independent `svld1_f32` loads (`x1`), each issued inline between successive `svmopa` instructions. This eliminated the register-contiguity requirement of x4 loads and let the x1 loads fall into the 6–8 cycle execution shadow of FMOPA, with a double-buffered `A` panel removing load-use stalls. This x1-loads variant is what lives in `sme/sme-1x4.cpp` today (renamed from `SME-GEMMKernelsExperimental.cpp` in the 2026-06-13 reorganization).
 
 **Result (100 iterations @ 2048³, per-trace totals from `traces/1x4.txt`):**
 | Metric | 1×4 (original `x4` loads) | 1×4 (interleaved `x1` loads, current) | Impact |
@@ -464,6 +524,8 @@ Scope of the claim: M4 with SVL=16, single-thread, 2048³, LLVM/Clang `-O3 -mcpu
 ---
 
 ## 11. Performance Ceiling — Rough Estimates (speculative)
+
+**Written:** 2026-04-26, headroom updated 2026-07-25 · **STANDS** — estimates, never measurements
 
 These are back-of-envelope thoughts for planning future work, **not measurements**. Treat them as bounds to sanity-check optimization ideas against, not targets to hit.
 

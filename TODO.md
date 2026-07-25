@@ -87,7 +87,7 @@ Built `scripts/profile.sh` around Instruments' `GemmTemplate.tracetemplate`. Rec
 Built an experimental 1×4 B-inner kernel (transpose of 4×1) and profiled all three layouts with PMU counters. 1×4 has the lowest instruction count and fewest L1D misses per instruction, but **loses on wall-clock GFLOPS** (1148 vs 4×1's 1213). Root cause per counters: IPC drops from 1.07 (4×1) to 0.62 (1×4) — the tighter instruction stream leaves too little slack between back-to-back FMOPAs targeting the same ZA tile, and pipeline stalls on same-tile dependency chains. Lesson: fewer instructions ≠ faster when FMOPA latency (6–8 cycles on M4) isn't hidden. Full write-up in docs/BENCHMARKS.md §9–§10.
 
 ### ~~1×4 experimental kernel shape~~ — DONE
-Implemented in `sme/SME-GEMMKernelsExperimental.{hpp,cpp}`. Correctness verified; benchmark wired into `test_sme.cpp::profile_1x4`. Kept in-tree as the B-inner reference point even though 4×1 remains the production kernel.
+Implemented in `sme/sme-1x4.{hpp,cpp}` (renamed from `SME-GEMMKernelsExperimental` on 2026-06-13). Correctness verified; benchmark wired into the `SMETest::Kernel::K1x4` dispatch path. Kept in-tree as the B-inner reference point even though 4×1 remains the production kernel.
 
 ---
 

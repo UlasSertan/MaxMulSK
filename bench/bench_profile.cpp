@@ -42,11 +42,29 @@ using cblas_sgemm_fn = void (*)(int, int, int, int, int, int,
                                 const float*, int, float, float*, int);
 static cblas_sgemm_fn g_openblas_sgemm = nullptr;
 
+// Try $OPENBLAS_DYLIB first, then the dynamic loader's own search path, then
+// the usual Homebrew prefixes (Apple Silicon, then Intel).
+static void* dlopen_openblas() {
+    const char* env = std::getenv("OPENBLAS_DYLIB");
+    const char* candidates[] = {
+        env,
+        "libopenblas.dylib",
+        "/opt/homebrew/opt/openblas/lib/libopenblas.dylib",
+        "/usr/local/opt/openblas/lib/libopenblas.dylib",
+    };
+    for (const char* path : candidates) {
+        if (!path) continue;
+        if (void* h = dlopen(path, RTLD_NOW | RTLD_LOCAL)) return h;
+    }
+    return nullptr;
+}
+
 static bool load_openblas() {
-    void* handle = dlopen("/opt/homebrew/opt/openblas/lib/libopenblas.dylib",
-                          RTLD_NOW | RTLD_LOCAL);
+    void* handle = dlopen_openblas();
     if (!handle) {
-        std::cerr << "  [error] dlopen libopenblas.dylib: " << dlerror() << "\n";
+        std::cerr << "  [error] could not load libopenblas.dylib: " << dlerror() << "\n"
+                  << "          install with 'brew install openblas', or set "
+                     "OPENBLAS_DYLIB=/path/to/libopenblas.dylib\n";
         return false;
     }
     g_openblas_sgemm = reinterpret_cast<cblas_sgemm_fn>(

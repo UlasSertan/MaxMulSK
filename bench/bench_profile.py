@@ -1,4 +1,4 @@
-#!/opt/anaconda3/bin/python
+#!/usr/bin/env python3
 # bench/bench_profile.py
 # Single-library, single-size, N-iteration profiling driver for NumPy and
 # PyTorch. Output format mirrors bench_profile.cpp / SMETest::profile() so

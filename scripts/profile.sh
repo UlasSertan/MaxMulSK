@@ -17,8 +17,16 @@
 set -eo pipefail
 
 if ! command -v cmake &>/dev/null; then
-    export PATH="/Applications/CLion.app/Contents/bin/cmake/mac/aarch64/bin:$PATH"
+    # Fall back to a CLion-bundled cmake if one is installed
+    for _c in /Applications/CLion*.app/Contents/bin/cmake/mac/*/bin \
+              "$HOME"/Applications/CLion*.app/Contents/bin/cmake/mac/*/bin; do
+        [ -d "$_c" ] && export PATH="$_c:$PATH" && break
+    done
 fi
+command -v cmake &>/dev/null || {
+    echo "error: cmake not found. Install it with 'brew install cmake'." >&2
+    exit 1
+}
 
 # Anchor to repo root so relative paths resolve regardless of caller's cwd
 cd "$(dirname "$0")/.."

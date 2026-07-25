@@ -1,12 +1,64 @@
 cmake_minimum_required(VERSION 3.30)
+
+# =============================================================================
+# Toolchain & dependency discovery
+#
+# Apple's bundled Clang does not support the SME/SME2 intrinsics this project
+# needs, so an LLVM/Clang from Homebrew is required. Everything below is
+# discovered rather than hardcoded; override any of it explicitly:
+#
+#   cmake -B build -DCMAKE_CXX_COMPILER=/path/to/clang++
+#   HOMEBREW_PREFIX=/custom/prefix cmake -B build
+#
+# Compiler selection must happen before project(), hence the placement.
+# =============================================================================
+
+if(DEFINED ENV{HOMEBREW_PREFIX})
+    set(HOMEBREW_PREFIX "$ENV{HOMEBREW_PREFIX}")
+else()
+    find_program(BREW_EXECUTABLE brew)
+    if(BREW_EXECUTABLE)
+        execute_process(COMMAND "${BREW_EXECUTABLE}" --prefix
+                        OUTPUT_VARIABLE HOMEBREW_PREFIX
+                        OUTPUT_STRIP_TRAILING_WHITESPACE
+                        ERROR_QUIET)
+    endif()
+endif()
+if(NOT HOMEBREW_PREFIX)
+    set(HOMEBREW_PREFIX "/opt/homebrew")  # Apple Silicon default
+endif()
+
+if(NOT DEFINED CMAKE_CXX_COMPILER)
+    find_program(LLVM_C_COMPILER   clang   HINTS "${HOMEBREW_PREFIX}/opt/llvm/bin" NO_DEFAULT_PATH)
+    find_program(LLVM_CXX_COMPILER clang++ HINTS "${HOMEBREW_PREFIX}/opt/llvm/bin" NO_DEFAULT_PATH)
+    if(LLVM_C_COMPILER AND LLVM_CXX_COMPILER)
+        set(CMAKE_C_COMPILER   "${LLVM_C_COMPILER}")
+        set(CMAKE_CXX_COMPILER "${LLVM_CXX_COMPILER}")
+    else()
+        message(FATAL_ERROR
+            "LLVM/Clang not found under ${HOMEBREW_PREFIX}/opt/llvm/bin.\n"
+            "Install it with 'brew install llvm', or point CMake at your own:\n"
+            "  cmake -B build -DCMAKE_C_COMPILER=... -DCMAKE_CXX_COMPILER=...")
+    endif()
+endif()
+
 project(MatrixLibrary LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_OSX_ARCHITECTURES arm64)
 
-set(CMAKE_C_COMPILER   "/opt/homebrew/opt/llvm/bin/clang")
-set(CMAKE_CXX_COMPILER "/opt/homebrew/opt/llvm/bin/clang++")
+# OpenMP runtime (Homebrew libomp — Apple's toolchain ships no libomp)
+find_path(LIBOMP_INCLUDE_DIR omp.h
+          HINTS "${HOMEBREW_PREFIX}/opt/libomp/include")
+find_library(LIBOMP_LIBRARY omp
+             HINTS "${HOMEBREW_PREFIX}/opt/libomp/lib")
+if(NOT LIBOMP_INCLUDE_DIR OR NOT LIBOMP_LIBRARY)
+    message(FATAL_ERROR
+        "libomp not found under ${HOMEBREW_PREFIX}/opt/libomp.\n"
+        "Install it with 'brew install libomp', or set -DLIBOMP_INCLUDE_DIR=... "
+        "and -DLIBOMP_LIBRARY=...")
+endif()
 
 add_executable(MatrixLibrary
         main.cpp
@@ -38,12 +90,12 @@ set_source_files_properties(sme/sme-4x1.cpp sme/sme-2x2.cpp sme/sme-1x4.cpp sme/
 )
 
 target_include_directories(MatrixLibrary PRIVATE
-        /opt/homebrew/opt/libomp/include
+        ${LIBOMP_INCLUDE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 target_link_libraries(MatrixLibrary PRIVATE
-        /opt/homebrew/opt/libomp/lib/libomp.dylib
+        ${LIBOMP_LIBRARY}
 )
 
 # =============================================================================
@@ -65,12 +117,12 @@ target_compile_options(bench_compare PRIVATE
 )
 
 target_include_directories(bench_compare PRIVATE
-        /opt/homebrew/opt/libomp/include
+        ${LIBOMP_INCLUDE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 target_link_libraries(bench_compare PRIVATE
-        /opt/homebrew/opt/libomp/lib/libomp.dylib
+        ${LIBOMP_LIBRARY}
         "-framework Accelerate"
         # OpenBLAS loaded at runtime via dlopen — no link-time dependency needed
 )
@@ -91,12 +143,12 @@ target_compile_options(bench_profile PRIVATE
 )
 
 target_include_directories(bench_profile PRIVATE
-        /opt/homebrew/opt/libomp/include
+        ${LIBOMP_INCLUDE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 target_link_libraries(bench_profile PRIVATE
-        /opt/homebrew/opt/libomp/lib/libomp.dylib
+        ${LIBOMP_LIBRARY}
         "-framework Accelerate"
 )
 
@@ -118,11 +170,11 @@ target_compile_options(matmul PRIVATE
 )
 
 target_include_directories(matmul PRIVATE
-        /opt/homebrew/opt/libomp/include
+        ${LIBOMP_INCLUDE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 target_link_libraries(matmul PRIVATE
-        /opt/homebrew/opt/libomp/lib/libomp.dylib
+        ${LIBOMP_LIBRARY}
         "-framework Accelerate"
 )
