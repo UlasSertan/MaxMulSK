@@ -1,5 +1,32 @@
 # MatrixLibrary
 
+Hi, I'm Ulaş, a computer engineering student.
+
+This project started after a computer architecture course. I'd just learned about
+caches, SIMD, and instruction ordering, and I wanted to actually use all of it
+instead of only answering exam questions about it. The other half was plain
+curiosity: how far could I push a matrix multiply on my own laptop, and how close
+could I get to the libraries that ship with the machine?
+
+Further than I expected, as it turned out.
+
+At first I just wanted to use SIMD. Then I remembered the caching lessons from the
+same course and started reading about packing and tiling. I didn't know SME even
+existed; I was simply lucky to find that my laptop had it, and from there it became
+the natural next step. So even though the code may look coherent and intentional
+now, most of the mechanics were learned along the way, and that turned out to be
+the most valuable part of the whole thing.
+
+This repo, together with its benchmarks and write-ups, is basically a record of
+that journey. It's a study rather than a library you'd drop into a project: the
+kernels are here to be read and measured, the documentation is dated so you can
+see how the conclusions changed over time, and the experiments that failed are
+written up next to the ones that worked.
+
+Hope you find something interesting or useful in here.
+
+## Overview
+
 High-performance GEMM (General Matrix Multiply) for Apple Silicon, implemented in C++20.
 
 Explores and benchmarks three levels of compute on ARM:
