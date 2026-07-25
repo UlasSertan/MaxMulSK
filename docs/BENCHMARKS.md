@@ -6,6 +6,91 @@ Compiler: LLVM/Clang `-O3 -mcpu=apple-m4`
 
 ---
 
+## 0. 2026-07-25 Refresh — Bug-Fix Session (current numbers)
+
+All three outstanding correctness bugs were fixed this session with **zero hot-path cost** (aligned sizes take the identical instruction stream as before):
+
+- **BUG-4x1-SMALL-M** — scratch-buffer edge-tile fallback added to 4×1 and ZAPack drivers (1×4 family already had it; harness skip-list was stale). All six kernels now pass the full correctness list (16³, 32³, 20×35×41, 67³, …).
+- **BUG-NEON-2X** — `Nc_cache` 1024 → 1020 (85×12). The old value violated the multiple-of-12 invariant, making the last 12-wide panel of each cache block double-accumulate 8 columns into the next block. MaxDiff at the failing shapes: was 12–100, now ≤ 0.0004 (pure fp32 rounding).
+- **BUG-ZAPACK-WRONG** — pack_A layout collision: panel index `p = m/SVL` wasn't wrapped per 4-panel group, so with `M_tile=128` panels 4–7 overwrote k+1's packed data. Fixed with `(m/SVL) % 4` + per-group base offset. ZAPack re-enabled everywhere.
+- **Accumulator precision** — closed as **not a bug**. Measured against fp64 ground truth (`cblas_dgemm`) at 4096³: Accelerate maxErr 0.000348, our SME 4×1 0.000209, our NEON 0.000115 — our kernels are *more accurate* than AMX. The historical "MaxDiff ~100" was BUG-NEON-2X corrupting the comparison baseline.
+
+### 0.1 Side-by-side kernel comparison (interleaved, single-thread, 2026-07-25)
+
+From `SMETest::run_comparison()` — all six kernels, interleaved timing:
+
+| Size | iters | 4×1 | 2×2 | 1×4 | 1×4-sym | 1×4ZAIO | 4×1-ZAPack | Winner |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| 256³ | 400 | 715.7 | **766.4** | 729.7 | 731.4 | 609.0 | 762.4 | 2×2 |
+| 512³ | 200 | 1057.1 | **1111.4** | 1050.2 | 1064.8 | 917.8 | 1110.7 | 2×2 |
+| 1024³ | 100 | 1142.6 | 1186.2 | 1235.7 | **1243.6** | 1119.8 | 1190.4 | 1×4-sym |
+| 2048³ | 50 | 1202.7 | 1067.2 | 999.2 | 1128.1 | **1259.0** | 1120.0 | 1×4ZAIO |
+| 4096³ | 20 | 1173.7 | 1059.1 | 1215.4 | **1308.5** | 1086.7 | 1087.4 | 1×4-sym |
+
+Notable shifts vs the 2026-04-26 measurement (§8):
+
+- **1×4-sym takes the crown at 4096³ (1308.5)** — the "true mirror of 4×1" B-inner kernel now clearly beats 4×1 (1173.7) at the largest size, weakening the §10 "A-inner is the only winning geometry" conclusion. The x4-grouped B-load variant appears to have been rehabilitated by the kernel/driver evolution since §10's measurements.
+- **1×4ZAIO wins 2048³ (1259.0)** — ZA-resident accumulation across K-chunks (`__arm_inout("za")`, K_inner_tile=40) pays off exactly where the store-back traffic hurt most.
+- **ZAPack, now correct, is real competition** (1190 @ 1024³ interleaved; 1310–1355 in isolated suite runs) — the ZA-based pack_A transpose is at minimum equal to the butterfly, and its `M_tile=128` tiling wins the L3 band.
+- **No single kernel wins everywhere.** 2×2 owns ≤512³, ZAPack/1×4-sym the 1024³ band, ZAIO 2048³, 1×4-sym 4096³. 4×1 is never first but never worse than ~10% off — it remains the safe default alongside its energy-efficiency lead (§2).
+
+Run-to-run thermal variance on these kernels is a few percent; treat single-digit-percent gaps as ties.
+
+### 0.2 Industry-library comparison (fresh, `bench/run_bench.sh`, 2026-07-25)
+
+```
+Size (MxKxN)          Tag                  NEON GF   SME 4x1    4x1 ZP   SME 2x2  Accel GF  OBlas GF  MaxDiff
+--------------------------------------------------------------------------------------------------------------
+8x8x8                 tiny                     5.8       0.3       0.4       0.6      18.4       6.4  0.00000
+16x16x16              tiny                     8.4       4.1       4.0       4.0      51.5      52.4  0.00000
+32x32x32              small                   41.0      13.5      13.6      61.8     340.3     404.4  0.00000
+64x64x64              small                   84.2     193.8     206.1     203.5    1051.6     994.6  0.00000
+128x128x128           L2                     106.9     414.4     447.9     441.8    1549.7    1359.9  0.00000
+256x256x256           L2                     115.4     712.9     762.8     765.9    1767.3    1364.1  0.00000
+512x512x512           L3                     121.5    1056.4    1110.4    1113.7    1697.9    1590.3  0.00000
+1024x1024x1024        L3                     122.7    1187.4    1280.8    1287.8    1679.6    1463.6  0.00000
+2048x2048x2048        mem-bound              122.9    1231.0    1096.4    1105.5    1647.4     633.2  0.00018
+4096x4096x4096        mem-bound              122.9    1199.7    1059.4    1087.7    1593.8     113.6  0.00039
+4095x4095x4095        mem-bound              121.5    1167.4     982.1    1019.2    1591.6     112.3  0.00041
+1024x1024x1020        N=85x12 aligned        123.4    1265.4    1345.9    1275.9    1837.3     109.4  0.00000
+2048x512x64           tall-skinny            101.0     667.4     879.7     883.4    1263.7     105.2  0.00000
+512x2048x64           wide-flat              102.0     734.9     973.6     971.1    1057.9     103.0  0.00011
+65x65x65              all tails +1            76.1      80.4      87.7      98.4     542.5     522.6  0.00000
+513x513x509           all tails mixed        118.6     857.2     903.6     823.0    1672.0     104.2  0.00000
+1025x1025x1021        all tails large        119.0    1145.1     933.6     891.9    1812.6     107.9  0.00007
+128x128x1100          N > Nc_cache           112.7     467.5     473.5     462.5    1575.2     104.2  0.00000
+512x512x2048          N >> Nc_cache          119.5    1065.5    1095.6    1075.6    1664.3     111.6  0.00000
+```
+
+- **MaxDiff ≤ 0.0004 everywhere** — the correctness column is finally flat. Compare §8's historical table where the same shapes showed 12–100.
+- **SME 4×1: 1231 @ 2048³, ~1200 @ 4096³** — ~75% of Accelerate at 4096³ (Accelerate itself measured hotter this run: 1594 @ 4096³, 1837 peak at the aligned 1024 case).
+- **NEON at 121–123 across every large shape** — including the previously-broken `N > Nc_cache` shapes, at full speed. `65³` jumped from 13 to 76 GFLOPS (small sizes previously took the scalar edge path much harder; the wider correctness surface is also friendlier now).
+- **Small sizes (≤32³) remain Accelerate's domain** — our SME kernels pay pack + streaming-mode entry per call; that's a known non-goal.
+- Python side (same session): NumPy 107–112 (vecLib NEON path), PyTorch ~1500 (AMX) — both unchanged from §2.2 within noise.
+
+### 0.3 fp32 accumulation error vs fp64 ground truth (2026-07-25)
+
+| | 2048³ maxErr | 2048³ rmsErr | 4096³ maxErr | 4096³ rmsErr |
+|---|---:|---:|---:|---:|
+| Accelerate (AMX) | 0.000159 | 0.000012 | 0.000348 | 0.000024 |
+| **Our SME 4×1** | 0.000159 | 0.000012 | **0.000209** | 0.000017 |
+| **Our NEON** | **0.000093** | 0.000009 | **0.000115** | 0.000012 |
+
+(max|C| ≈ 78 at 2048³, ≈ 112 at 4096³; inputs U(−1,1).) Pairwise summation is unnecessary — dropped from the roadmap.
+
+### 0.4 4×1 timing breakdown (fresh)
+
+```
+  Size      pack_A(ms)  pack_B(ms)  kernel(ms)  total(ms)   pack%
+  ----------------------------------------------------------------
+   256^3        0.01        0.00        0.04        0.05   17.57%
+   512^3        0.02        0.01        0.22        0.26   12.59%
+  1024^3        0.22        0.06        1.51        1.79   15.72%
+  2048^3        2.46        0.44       11.29       14.19   20.43%
+```
+
+---
+
 ## 1. Performance Progression
 
 | Implementation | GFLOPS | Notes |
@@ -19,9 +104,11 @@ Compiler: LLVM/Clang `-O3 -mcpu=apple-m4`
 | SME 2×2 | ~1192 | 2×2 tile layout, interleaved B packing (peak at 1024³) |
 | SME 1×4 (B-inner, x4 loads — retired baseline) | ~1148 | Symmetric-to-4×1 load pattern; stalled on FMOPA same-tile chain (IPC 0.62) |
 | SME 1×4 (B-inner, x1 interleaved loads — current experimental) | ~1190 | B panels loaded one register at a time into FMOPA shadow. **Now matches 4×1 at 4096³** (1190 GFLOPS, 2026-04-26) but lags at smaller sizes (~1025 at 2048³, ~856 at 512³) |
-| SME 4×1 ZAPack | n/a | New variant using ZA-based pack_A transpose. **Has known wrong-result / heap-corrupt bug at small M (TODO BUG-ZAPACK-WRONG and BUG-4x1-SMALL-M).** Disabled in current test harness; numbers below in §8 are from the buggy build and will be re-measured after the fix. |
+| SME 4×1 ZAPack | ~1190–1355 | ZA-based pack_A transpose (`svld1_hor_za32` / `svst1_ver_za32`). Packing layout bug fixed 2026-07-25 (see §0); wins the L3 band with M_tile=128. |
+| SME 1×4-sym | ~1308 | x4-grouped B loads (true mirror of 4×1). Current peak holder at 4096³ (§0.1). |
+| SME 1×4ZAIO | ~1259 | Split zero/compute/store sharing ZA via `__arm_inout`; K_inner_tile=40. Current winner at 2048³ (§0.1). |
 
-**Note on small sizes:** SME 4×1 / 1×4 / ZAPack micro-kernels emit a fixed 4·SVL × SVL (or SVL × 4·SVL) output tile and do not have a scratch-buffer fallback for partial tiles. Sizes with M < 64 (or N < 64 for 1×4) silently corrupt heap memory beyond `C[M*N)`. Production usage targets large M; small-size correctness is enforced via test-harness padding (`bench/bench_compare.cpp`) or skip (`sme/test_sme.cpp`). Real fix: add scratch-buffer + scatter-back path mirroring 2×2's BUG-2x2-1 fix (TODO §1).
+**Note on small sizes (historical, fixed 2026-07-25):** all kernels now have a scratch-buffer + scatter-back fallback for partial output tiles — arbitrary M/K/N is safe. The old harness skip-list and `bench_compare` C-padding workarounds are removed.
 
 ---
 
@@ -229,7 +316,7 @@ Size (MxKxN)         Tag             NEON   SME 4x1  ZAPack   SME 2x2   Accel   
 512x2048x512         N >> Nc_cache  115.7    994.9  1040.4    1028.6   1652.8    110.7  28.58930
 ```
 
-(MaxDiff = `max(|NEON - Accel|, |NEON - OBlas|)`. The 12+/62+/100+ entries are the pre-existing NEON exact-2× correctness bug at certain `N > Nc_cache` shapes — see TODO BUG-NEON-2X.)
+(MaxDiff = `max(|NEON - Accel|, |NEON - OBlas|)`. The 12+/62+/100+ entries were the NEON exact-2× correctness bug at `N > Nc_cache` shapes — **fixed 2026-07-25**, see §0.2 for the clean table.)
 
 ### Timing Breakdown — pack_A vs pack_B vs micro-kernel (4×1, fresh)
 
@@ -247,9 +334,9 @@ Size (MxKxN)         Tag             NEON   SME 4x1  ZAPack   SME 2x2   Accel   
 - **SME 4×1 reaches ~78% of Accelerate (AMX) at 4096³** (1183 / 1523). Up from the previous ~67% reference point; both numbers shifted (4×1 dropped from 1213, Accel dropped from 1813 → likely measurement variance / different thermal state).
 - **SME 4×1 beats OpenBLAS by ~10× at large sizes** (1183 vs 113 at 4096³). OpenBLAS does not take the AMX path and degrades sharply on non-aligned sizes ≥ 2048³.
 - **SME 2×2 wins the L3-fitting band** (1024³–2048³). Its 32×32 output tile interacts better with M4's L1/L2 hierarchy at those sizes.
-- **ZAPack matches 4×1 at L3 sizes** (1188 at 1024³ vs 4×1's 1026 — actually *beats* it) but the kernel has known correctness bugs (TODO BUG-ZAPACK-WRONG); these numbers may be unreliable until the bug is fixed.
+- **ZAPack matches 4×1 at L3 sizes** (1188 at 1024³ vs 4×1's 1026 — actually *beats* it). *(2026-07-25: bug fixed; the win is confirmed real — see §0.1.)*
 - **NEON kernel sits at NEON ceiling** (~120 GFLOPS) — competitive with NumPy's vecLib path (~110) but dominated by everything that uses AMX.
-- **Accumulator precision** still degrades at ≥2048³ (MaxDiff vs Accelerate up to ~100). Pairwise summation planned (TODO §7).
+- **Accumulator precision** *(2026-07-25: closed as not-a-bug — the ~100 MaxDiff was BUG-NEON-2X; fp64-truth measurement in §0.3 shows our kernels are more accurate than Accelerate.)*
 
 ---
 
@@ -357,7 +444,7 @@ To test the `1x4` IPC collapse hypothesis, the experimental kernel was rewritten
 | FLOPs / instr | 418 | 166 | Stream is far "less dense" in useful work |
 | L1D miss / 1M instr | 368 | 135 | Dilution only — absolute miss count unchanged |
 
-**Conclusion — A-inner (4×1) is the winning geometry on M4 SME.** Combined with §10, this experiment closes both escape routes for B-inner (1×4):
+**Conclusion — A-inner (4×1) is the winning geometry on M4 SME.** *(2026-07-25 update: this conclusion is now partially overturned — the 1×4-sym kernel (x4-grouped B loads) measures 1308 GFLOPS at 4096³, beating 4×1's 1174 in the same interleaved run (§0.1). The IPC-collapse analysis below remains valid for the kernels as they existed on 2026-04-15; the B-inner geometry has since been rehabilitated by driver/tiling evolution. Worth re-profiling with PMU counters to understand what changed.)* Combined with §10, this experiment closes both escape routes for B-inner (1×4):
 
 1. **Symmetric x4 loads:** 1×4 with the same load pattern as 4×1 already loses — 1148 < 1193 GFLOPS, IPC 0.62 vs 1.07. So "they're mathematical transposes, they should tie" is empirically false on this pipeline.
 2. **x1 rescue attempt:** fixing the IPC stall requires so many extra load/move instructions that wall time gets *worse*, not better — even though IPC now exceeds 4×1's.
@@ -385,4 +472,4 @@ These are back-of-envelope thoughts for planning future work, **not measurements
 - **Practical ceiling on the SME path:** ≈ 1 600–1 700 GFLOPS. Getting there likely requires `__arm_inout("za")` to skip the per-call ZA zero + load-back, a leaner pack_A, and better FMOPA scheduling (address the 1×4 IPC finding above).
 - **AMX-class (≥ 1 800 GFLOPS)** probably out of reach from SME alone. Accelerate's ~1 813 GFLOPS at 4096³ uses the AMX coprocessor — a different silicon block — so no software on the SME path is expected to match it.
 
-Current SME 4×1 peak is ~1 213 GFLOPS @ 4096³, leaving roughly 28–40 % headroom against these estimates. Worth chasing, but not infinite.
+Current single-thread peak is ~1 308 GFLOPS @ 4096³ (1×4-sym, 2026-07-25 — see §0.1), leaving roughly 20–30 % headroom against these estimates. Worth chasing, but not infinite.

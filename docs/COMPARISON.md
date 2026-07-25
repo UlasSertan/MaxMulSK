@@ -1,5 +1,8 @@
 # Single-Thread GEMM Benchmark — Comparison Report
 
+> **Historical snapshot.** Current numbers (post bug-fix session, all six SME
+> kernels, clean MaxDiff column) live in [BENCHMARKS.md §0](BENCHMARKS.md).
+
 **Date:** 2026-04-15 (updated; original NEON-only comparison: 2026-04-10)
 **Hardware:** Apple M4 (MacBook Air), arm64
 **OS:** macOS 14 (Sequoia)

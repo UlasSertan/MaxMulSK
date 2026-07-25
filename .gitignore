@@ -67,5 +67,7 @@ CLAUDE.md
 # Instruments profiling
 # ============================================================
 *.tracetemplate
+# scripts/profile.sh needs this template — keep it tracked
+!GemmTemplate.tracetemplate
 *.trace
 traces/
