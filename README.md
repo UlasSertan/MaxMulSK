@@ -31,23 +31,30 @@ High-performance GEMM (General Matrix Multiply) for Apple Silicon, implemented i
 
 Explores and benchmarks three levels of compute on ARM:
 
-| Kernel | ISA | Strategy | GFLOPS (single-thread, peak) |
+| Kernel | ISA | Strategy | GFLOPS (single-thread, peak, end-to-end) |
 |--------|-----|----------|------------------------|
 | Scalar | — | Naive triple-loop reference | ~2.6 |
 | NEON | ARMv8.4 | 8×12 micro-kernel, 4× K-unroll, in-register transpose | ~123 |
 | NEON + OpenMP | ARMv8.4 | Above + multi-thread, dynamic scheduling | ~539 |
-| SME 4×1 | ARMv8.7 + SME/SME2 | 4×SVL outer-product micro-kernel, K_tile=2048 | ~1231 (2048³) — most energy-efficient |
+| SME 4×1 | ARMv8.7 + SME/SME2 | 4×SVL outer-product micro-kernel, K_tile=2048 | ~1248 (2048³) |
 | SME 2×2 | ARMv8.7 + SME/SME2 | 2×2 SVL outer-product, interleaved B packing | ~1310 (1024³) |
 | SME 1×4 | ARMv8.7 + SME/SME2 | B-inner packing, x1 interleaved B loads in FMOPA shadow | ~1236 (1024³) |
-| SME 1×4-sym | ARMv8.7 + SME/SME2 | B-inner packing, x4-grouped B loads (true mirror of 4×1) | **~1308 (4096³) — overall peak** |
+| SME 1×4-sym | ARMv8.7 + SME/SME2 | B-inner packing, x4-grouped B loads (true mirror of 4×1) | ~1326 (4096³) — our best at 4096³ |
 | SME 1×4ZAIO | ARMv8.7 + SME/SME2 | 1×4-sym with ZA-resident K-accumulation (`__arm_inout("za")`) | ~1272 (2048³) |
 | SME 4×1 ZAPack | ARMv8.7 + SME/SME2 | 4×1 with ZA-based pack_A transpose, M_tile=128 | ~1346 (1024×1024×1020) |
+| SME 1×4-Acc | ARMv8.7 + SME/SME2 | K innermost, ZA-resident across all of K, overwriting row-major store, ZA-transpose pack_A | **~1773 (1024³) — overall peak** |
+| SME 1×4-Acc-Kc | ARMv8.7 + SME/SME2 | 1×4-Acc with the K tile split into `Kc` sub-chunks | ~1739 (1024³) |
 
 All optimized kernels use cache-blocking and pack A/B into contiguous, kernel-friendly layouts. **Every kernel handles arbitrary M/N/K**: full output tiles write directly to C (hot path), partial edge tiles go through a scratch-buffer + scatter-back fallback with zero cost on aligned sizes.
 
-The SME kernels use SVE predicated loads for K-tail handling and ZA tile accumulators for outer-product computation. Six SME micro-kernel variants are implemented; the winner depends on size — no single geometry dominates (see the comparison below). See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for full experimental results: power/energy comparison vs Accelerate / PyTorch / OpenBLAS / NumPy, cache behavior, Instruments PMU profiling, and micro-kernel tuning experiments.
+The SME kernels use SVE predicated loads for K-tail handling and ZA tile accumulators for outer-product computation. Eight SME micro-kernel variants are implemented (six of them wired into the main test binary; the two `1×4-Acc` variants are exercised through `bench/benchmark_maxmul_vs_kleidiai`). The winner depends on size — no single geometry dominates (see the comparison below).
+
+**Two notes on reading any number here.** First, *end-to-end* figures include packing; *prepacked* figures do not, and the two are not comparable — the tables say which. Second, this machine offers no thread pinning and between-run variance reaches ~12% on the worst rows, so current figures are the median of three full runs and **differences below ~5% are not meaningful**. See [bench/results/](bench/results/) and docs/BENCHMARKS.md §0.14. See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for full experimental results: power/energy comparison vs Accelerate / PyTorch / OpenBLAS / NumPy, cache behavior, Instruments PMU profiling, and micro-kernel tuning experiments.
 
 ## SME kernel comparison (interleaved, single-thread, 2026-07-25)
+
+> Historical: these are the six kernels that existed before the 1×4-Acc line.
+> Current figures, as the median of three runs, are in docs/BENCHMARKS.md §0.14.
 
 | Size | 4×1 | 2×2 | 1×4 | 1×4-sym | 1×4ZAIO | 4×1-ZAPack | Winner |
 |---|---:|---:|---:|---:|---:|---:|---|
@@ -59,15 +66,16 @@ The SME kernels use SVE predicated loads for K-tail handling and ZA tile accumul
 
 ## Single-Thread Comparison vs Industry Libraries
 
-Benchmarked on Apple M4, single-threaded float32 GEMM, threads pinned to 1. Numbers from the 2026-07-25 measurement (`bench/run_bench.sh`). Full table in docs/BENCHMARKS.md §0.2.
+Benchmarked on Apple M4, single-threaded float32 GEMM. The rows below are the 2026-07-25 measurement (`bench/run_bench.sh`, docs/BENCHMARKS.md §0.2) except where marked; the current head-to-head against **Arm KleidiAI** and **llama.cpp/ggml** — including a micro-kernel-only, a prepacked and an end-to-end mode — is docs/BENCHMARKS.md §0.6–§0.14, with raw data in [bench/results/](bench/results/).
 
 | Library | Backend | Peak GFLOPS (4096³ unless noted) | Notes |
 |---------|---------|-------------|-------|
 | Accelerate (`cblas_sgemm`) | AMX | ~1594 (peak ~1837 at 1024-band) | Apple's matrix coprocessor |
 | PyTorch 2.10 | AMX | ~1509 (2048³) | Same backend; Python dispatch overhead |
-| **Our SME 1×4-sym** | SME/ZA | **~1308** | Overall single-thread peak — ~82% of AMX at 4096³ |
-| **Our SME 4×1** | SME/ZA | **~1200 (4096³), ~1231 (2048³)** | ~75% of AMX; **most energy-efficient variant** at 0.0065 J/GFLOP |
-| **Our SME 2×2** | SME/ZA | **~1288 (1024³)** | Wins the ≤512³ band; balanced 32×32 output tile |
+| **Our SME 1×4-Acc** | SME/ZA | **~1773 (1024³)** | Current peak; ahead of Accelerate and KleidiAI at 1024³, level with KleidiAI panel-blocked (§0.14) |
+| **Our SME 1×4-sym** | SME/ZA | **~1308 (4096³)** | Previous peak; still our best at 4096³ end-to-end |
+| **Our SME 4×1** | SME/ZA | **~1237 (4096³), ~1248 (2048³)** | ~75% of AMX; our most energy-efficient kernel *only* at 128×32768×512 now (§0.15) |
+| **Our SME 2×2** | SME/ZA | **~1308 (1024³)** | Best of the pre-Acc kernels at ≤512³; balanced 32×32 output tile |
 | Our NEON kernel | NEON | ~123 | At theoretical NEON ceiling; correct at all shapes |
 | NumPy 2.1 (macOS) | vecLib NEON | ~112 | Does *not* take the AMX path for `np.matmul(float32)` |
 | OpenBLAS 0.3.32 | NEON | ~113–1590 | Strong at L3 sizes, collapses to ~110 at 2048³+ on non-aligned shapes |
@@ -75,6 +83,11 @@ Benchmarked on Apple M4, single-threaded float32 GEMM, threads pinned to 1. Numb
 Correctness: MaxDiff vs Accelerate/OpenBLAS ≤ 0.0004 across all 19 benchmark shapes (pure fp32 rounding). Against float64 ground truth at 4096³, our kernels are *more accurate* than Accelerate (maxErr: NEON 0.000115, SME 4×1 0.000209, Accelerate 0.000348 — docs/BENCHMARKS.md §0.3).
 
 ### Energy efficiency (2048³ × 100 iters, `profile_power.sh`, 2026-04-26)
+
+> **Superseded by docs/BENCHMARKS.md §0.15** (2026-09-06), which measures seven
+> implementations — including the 1×4-Acc kernels and KleidiAI — as the median of
+> three runs. The table below is kept for the progression; it covers only three
+> of our kernels and predates the whole 1×4-Acc line.
 
 | Library | Energy (J) | J / GFLOP | GFLOPS / W |
 |---------|-----------:|----------:|-----------:|
@@ -88,11 +101,14 @@ Correctness: MaxDiff vs Accelerate/OpenBLAS ≤ 0.0004 across all 19 benchmark s
 
 **Key findings:**
 
-- **SME closes the gap with AMX to ~1.2×.** Our peak (1×4-sym, ~1308) reaches ~82% of Accelerate's ~1594 at 4096³. Up from the ~7% ratio with NEON alone.
-- **SME is ~10× faster than NEON** on the same single core — the ZA accumulator is a fundamentally different compute tier.
-- **Our SME 4×1 beats PyTorch on energy efficiency** (0.0065 vs 0.0076 J/GFLOP) despite running slower in wall-clock terms — PyTorch's dispatcher overhead inflates total energy at 2048³.
+- **At 1024³ we now pass Accelerate end-to-end.** 1×4-Acc reaches ~1773 GFLOP/s against Accelerate's ~1683, KleidiAI's ~1620 and KleidiAI panel-blocked ~1737 (§0.14). Accelerate still leads at 256³–512³ and at 4096³.
+- **Prepacked, we are level with KleidiAI at 2048³ and lead on the large-K LLM shapes.** 1810 vs 1799 is 0.6% — a tie under this repo's own ±5% noise rule, not a lead. The large-K lead is real: 1275 vs 923 at 128×32768×512, though that figure is 1×4-sym's; 1×4-Acc manages only 965 there (§0.14).
+- **Our SME micro-kernel's arithmetic matches KleidiAI's exactly.** Fitting per-invocation time against Kc gives the same slope for both (~2008 GFLOP/s of pure compute); the whole difference was fixed per-call cost, which four rounds of work cut from 356 ns to 52 ns (§0.9-A).
+- **SME is ~14× faster than NEON** on the same single core (1773 vs ~123) — the ZA accumulator is a fundamentally different compute tier.
+- **Our SME 4×1 beats PyTorch on energy efficiency** (0.0065 vs 0.0076 J/GFLOP, 2026-04-26) despite running slower in wall-clock terms — PyTorch's dispatcher overhead inflates total energy at 2048³. PyTorch has not been re-measured since; our own kernels have (§0.15).
 - **NumPy is ~10× less efficient than our SME** in J/GFLOP. Single-threaded `np.matmul(float32)` on macOS takes the vecLib NEON path, not AMX; PyTorch's own dispatcher reaches AMX correctly.
-- **Size-dependent SME ranking:** 2×2 owns ≤512³, 1×4-sym the 1024³ band and 4096³, 1×4ZAIO wins 2048³. 4×1 is never first but never far behind — it remains the safe default and the most energy-efficient variant.
+- **Size-dependent SME ranking (2026-09-06, end-to-end):** the 1×4-Acc pair owns everything up to 2048³ — 1398 at 256³, 1660 at 512³, 1773 at 1024³, 1481 at 2048³ — while 1×4-sym still owns 4096³ (1326) and the pre-Acc kernels hold the K=32768 shapes (4×1-ZAPack 901 vs Acc's 736 at 128×32768×512), where Acc's full-K packing hurts most. The older ranking (2×2 ≤512³, 1×4ZAIO at 2048³) described the six kernels that existed before the Acc line.
+- **Energy tracks throughput, it does not trade against it (§0.15).** Going from 1×4-sym to 1×4-Acc bought +37% GFLOP/s *and* −13.4% J/GFLOP at 1024³, and +25.5% / −5.8% at 2048³; at 4096³ and 128×32768×512 it lost on both axes. Against the outside libraries we are level with KleidiAI at 1024³ (0.00600 vs 0.00591), and 21% behind at 4096³.
 
 ### A note on the 4×1 vs 1×4 IPC story
 
@@ -120,19 +136,32 @@ MaxMulSK/
 │   ├── neon-8x12.hpp/.cpp         # NEON 8×12 kernel + packing + OpenMP driver
 │   └── test_neon.hpp/.cpp         # Packing + GEMM correctness vs scalar
 ├── sme/
-│   ├── sme-4x1.hpp/.cpp               # SME 4×1 kernel + packing — energy-efficiency default
+│   ├── sme-4x1.hpp/.cpp               # SME 4×1 kernel + packing — most efficient at large K
 │   ├── sme-2x2.hpp/.cpp               # SME 2×2 kernel + interleaved B packing
 │   ├── sme-1x4.hpp/.cpp               # SME 1×4 B-inner kernel (x1 interleaved loads)
-│   ├── sme-1x4-sym.hpp/.cpp           # SME 1×4 x4-grouped B loads — overall peak at 4096³
+│   ├── sme-1x4-sym.hpp/.cpp           # SME 1×4 x4-grouped B loads — our best at 4096³
 │   ├── sme-1x4-sym-zainout.hpp/.cpp   # 1×4-sym with split zero/compute/store sharing ZA via __arm_inout
 │   ├── sme-4x1-zapack.hpp/.cpp        # SME 4×1 with ZA-based pack_A transpose, M_tile=128
+│   ├── sme-1x4-acc.hpp/.cpp           # 1×4-Acc: K innermost, ZA-resident over all K, overwriting store, ZA pack_A
+│   ├── sme-1x4-acc-kc.hpp/.cpp        # 1×4-Acc with the K tile split into Kc sub-chunks
 │   └── test_sme.hpp/.cpp              # Single dispatch surface: SMETest::Kernel enum + run / run_comparison / run_timing_breakdown / profile
 ├── bench/
 │   ├── bench_compare.cpp          # C++ comparison: NEON / SME / Accelerate / OpenBLAS
 │   ├── bench_python.py            # Python comparison: NumPy / PyTorch
 │   ├── bench_profile.cpp          # Single-library driver (accel|oblas) for profiling scripts
 │   ├── bench_profile.py           # Single-library driver (numpy|pytorch)
-│   └── run_bench.sh               # Build + run both comparison benchmarks
+│   ├── run_bench.sh               # Build + run both comparison benchmarks
+│   ├── benchmark_maxmul_vs_kleidiai.cpp  # Layered head-to-head: hot micro-kernel / prepacked / end-to-end / panel-blocked / ggml
+│   ├── maxmulsk_sme_adapter.hpp/.cpp     # Uniform dispatch over our SME kernels + prepacked and hot-tile harnesses
+│   ├── kleidiai_gemm.hpp/.cpp            # Arm KleidiAI fp32 SME2 wrapper (full-pack and panel-blocked callers)
+│   ├── ggml_gemm_baseline.hpp/.cpp       # llama.cpp/ggml CPU baseline, native and KleidiAI dispatch paths
+│   ├── energy_bench.cpp                  # One implementation, one shape, held busy for a fixed wall time
+│   ├── energy_bench.sh                   # Wraps the above in powermetrics -> W, J, J/GFLOP
+│   ├── energy_parse.py                   # powermetrics capture -> average power
+│   ├── grand_benchmark.sh                # Runs every benchmark into one dated directory
+│   ├── grand_summary.py                  # Aggregates a run directory into SUMMARY.md
+│   ├── average_runs.py                   # Median across repeated runs + per-row spread
+│   └── results/                          # Dated result archive; nothing here is deleted (see results/README.md)
 ├── experiments/
 │   └── matmul.cpp                 # Standalone N=2048 head-to-head: our SME kernel vs Accelerate
 ├── scripts/
@@ -158,6 +187,8 @@ MaxMulSK/
 - CMake 3.30+
 - OpenBLAS — `brew install openblas`, for `bench_compare` only (loaded via `dlopen`, optional at runtime)
 - Python with `numpy` and `torch` — for `bench_python.py` only
+- **Arm KleidiAI** — fetched and built automatically at a pinned tag (`v1.30.0`). Turn it off with `-DMAXMULSK_WITH_KLEIDIAI=OFF`, or point at an existing checkout with `-DFETCHCONTENT_SOURCE_DIR_KLEIDIAI=...`
+- **llama.cpp / ggml** *(optional)* — only for the ggml CPU baseline rows. Build it CPU-only, then point CMake at it
 
 The build discovers the toolchain rather than hardcoding paths. Override any of it:
 
@@ -168,11 +199,37 @@ OPENBLAS_DYLIB=/path/to/libopenblas.dylib ./bench/run_bench.sh
 PYTHON=/opt/anaconda3/bin/python ./bench/run_bench.sh  # interpreter with numpy+torch
 ```
 
+For the llama.cpp/ggml baseline, build ggml with every external accelerator off
+so the rows measure ggml's own CPU path, then point CMake at it:
+
+```bash
+cmake -S llama.cpp -B llama-build -DCMAKE_BUILD_TYPE=Release \
+      -DGGML_METAL=OFF -DGGML_ACCELERATE=OFF -DGGML_BLAS=OFF \
+      -DGGML_CPU_KLEIDIAI=ON -DGGML_OPENMP=OFF
+cmake --build llama-build --target ggml-cpu ggml-base ggml
+
+cmake -B cmake-build-release -S . \
+      -DLLAMA_CPP_DIR=llama.cpp -DLLAMA_CPP_BUILD_DIR=llama-build \
+      -DLLAMA_CPP_KLEIDIAI_LIB=llama-build/_deps/kleidiai-build/libkleidiai.a
+```
+
+`GGML_CPU_KLEIDIAI=ON` adds a second ggml row that dispatches to KleidiAI's fp32
+SME2 kernel; without it only ggml's native path is measured. Note that ggml pins
+its *own* KleidiAI version (v1.24.0), independent of the one this repo fetches.
+
 ## Build & Run
 
 ```bash
-# Main binary (NEON tests + all six SME suites + comparison + timing breakdown)
+# Main binary (NEON tests + the six SME suites it wires up + comparison + timing breakdown)
 ./scripts/run.sh
+
+# Everything, into bench/results/<date>/ — this is the one to run
+./bench/grand_benchmark.sh
+./bench/grand_benchmark.sh --power-only   # energy only, reusing an existing directory
+
+# Layered head-to-head on its own (hot micro-kernel / prepacked / end-to-end / panel / ggml)
+cmake --build cmake-build-release --target benchmark_maxmul_vs_kleidiai
+./cmake-build-release/benchmark_maxmul_vs_kleidiai out.csv
 
 # Single-thread competitor comparison (NEON / SME / Accelerate / OpenBLAS / NumPy / PyTorch)
 ./bench/run_bench.sh
@@ -190,7 +247,7 @@ sudo ./scripts/profile_power.sh --binary /opt/anaconda3/bin/python \
 
 ## Output
 
-Running `./scripts/run.sh` executes NEON unit tests, NEON speed sweep, all six SME kernel suites (pack correctness → GEMM correctness → benchmark), the cross-kernel comparison, and the 4×1 timing breakdown.
+Running `./scripts/run.sh` executes NEON unit tests, NEON speed sweep, the six SME kernel suites wired into that binary (pack correctness → GEMM correctness → benchmark), the cross-kernel comparison, and the 4×1 timing breakdown.
 
 ## Roadmap
 
@@ -206,10 +263,12 @@ Running `./scripts/run.sh` executes NEON unit tests, NEON speed sweep, all six S
 - [x] Fix NEON exact-2× bug at `N > Nc_cache` shapes
 - [x] Fix ZAPack packing-layout bug
 - [x] Verify fp32 accumulation error vs fp64 ground truth (beats Accelerate)
+- [x] Head-to-head vs Arm KleidiAI and llama.cpp/ggml, separating micro-kernel from macro-flow
+- [x] ZA-lifetime kernel line (1×4-Acc): K innermost, overwriting row-major store, ZA-transpose packing
 - [ ] Dynamic tiling
 - [ ] Re-profile 1×4-sym vs 4×1 with PMU counters (explain the B-inner turnaround)
 - [ ] SME multi-threading
-- [ ] Rust scheduling layer for heterogeneous work distribution (P-core vs E-core)
+- [ ] Remove 1×4-Acc's full-K packing requirement (its remaining loss at 4096³ and K ≥ 16384)
 
 ## License
 

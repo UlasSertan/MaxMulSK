@@ -1,5 +1,6 @@
 // bench/bench_compare.cpp
-// Single-threaded GEMM comparison: our NEON vs Apple Accelerate vs OpenBLAS
+// Single-threaded GEMM comparison: our NEON/SME vs Apple Accelerate vs
+// OpenBLAS vs Arm KleidiAI
 //
 // Build via CMake target `bench_compare`.
 // Run via bench/run_bench.sh (sets VECLIB_MAXIMUM_THREADS=1 and
@@ -14,6 +15,7 @@
 #include <algorithm>
 #include <random>
 #include <cstdlib>
+#include <memory>
 
 // Apple Accelerate (AMX-backed on M4) — linked at compile time
 #include <Accelerate/Accelerate.h>
@@ -30,6 +32,11 @@
 #include "../sme/sme-2x2.hpp"       // 2x2 version
 #include "../sme/sme-4x1-zapack.hpp" // 4x1 with ZA-based pack_A
 
+// Arm KleidiAI fp32 micro-kernels (SME2 FMOPA + NEON FMLA). Compiled to a
+// no-op stub when the build is configured without KleidiAI.
+#include "kleidiai_gemm.hpp"
+
+#include <array>
 #include <omp.h>
 
 using Clock = std::chrono::high_resolution_clock;
@@ -143,12 +150,37 @@ int main() {
     setenv("OPENBLAS_NUM_THREADS",   "1", 1);
 
     const bool have_openblas = load_openblas();
+    const bool have_kleidiai = KleidiAI::available();
+
+    // KleidiAI ships micro-kernels, not a BLAS: they take operands already
+    // packed into a kernel-specific layout. Every other library measured here
+    // packs internally as part of the timed call, so the headline "Kai SME2"
+    // column includes packing. The per-kernel breakdown printed after the main
+    // table separates packing from the matmul itself.
+    constexpr std::array<KleidiAI::Kernel, 3> KAI_KERNELS = {
+        KleidiAI::Kernel::Sme2Mopa2VL,
+        KleidiAI::Kernel::Sme2Mopa8VS,
+        KleidiAI::Kernel::Neon6x8Mla,
+    };
+    // Variant promoted into the main table: the 2VL x 2VL FMOPA kernel, the
+    // direct structural analogue of our SME 2x2.
+    constexpr size_t KAI_HEADLINE = 0;
+
+    std::vector<std::unique_ptr<KleidiAI::Gemm>> kai;
+    for (auto k : KAI_KERNELS) kai.push_back(std::make_unique<KleidiAI::Gemm>(k));
+
+    // Per-case, per-kernel results, printed as a second table after the loop.
+    std::vector<std::array<double, 3>> kai_gf_total, kai_gf_mm;
+    std::vector<std::array<float, 3>>  kai_diff;
 
     std::cout << "===========================================================================\n";
-    std::cout << "  Single-thread GEMM: NEON (ours) vs Accelerate (AMX) vs OpenBLAS (NEON)\n";
+    std::cout << "  Single-thread GEMM: NEON/SME (ours) vs Accelerate (AMX) vs OpenBLAS\n";
+    std::cout << "                      vs Arm KleidiAI (SME2 FMOPA / NEON FMLA)\n";
     std::cout << "  float32, row-major C = A*B\n";
     if (!have_openblas)
         std::cout << "  [OpenBLAS unavailable — OBlas column will show 0]\n";
+    if (!have_kleidiai)
+        std::cout << "  [KleidiAI not built — reconfigure with -DMAXMULSK_WITH_KLEIDIAI=ON]\n";
     std::cout << "===========================================================================\n\n";
 
     struct Case { size_t M, N, K; const char* tag; };
@@ -185,9 +217,10 @@ int main() {
     std::cout << std::left << std::setw(W_SIZE) << "Size (MxKxN)"
               << std::setw(W_TAG) << "Tag";
     hdr("NEON GF"); hdr("SME 4x1"); hdr("4x1 ZP"); hdr("SME 2x2");
+    hdr("Kai SME2");
     hdr("Accel GF"); hdr("OBlas GF"); hdr("vs Accel"); hdr("vs OBlas");
     std::cout << std::right << std::setw(9) << "MaxDiff\n";
-    std::cout << std::string(W_SIZE + W_TAG + W_NUM * 8 + 9, '-') << "\n";
+    std::cout << std::string(W_SIZE + W_TAG + W_NUM * 9 + 9, '-') << "\n";
 
     for (const auto& c : cases) {
         const int iters = iters_for(std::max({c.M, c.N, c.K}));
@@ -233,6 +266,32 @@ int main() {
         double gf_accel = gflops(c.M, c.N, c.K, ms_accel);
         double gf_oblas = gflops(c.M, c.N, c.K, ms_oblas);
 
+        // KleidiAI: pack into the micro-kernel layout, then run. Timed twice —
+        // once including the pack (comparable to every other column, all of
+        // which pack internally), once for the matmul alone.
+        std::array<double, 3> gf_kai_total{}, gf_kai_mm{};
+        std::array<float, 3>  diff_kai{};
+        if (have_kleidiai) {
+            std::vector<float> C_kai(c.M * c.N, 0.0f);
+            for (size_t v = 0; v < KAI_KERNELS.size(); ++v) {
+                KleidiAI::Gemm& g = *kai[v];
+                g.reshape(c.M, c.N, c.K);  // untimed: owns the allocations
+
+                const double ms_total = bench([&]{
+                    g.pack(A.data(), B.data());
+                    g.matmul(A.data(), C_kai.data());
+                }, iters);
+                const double ms_mm = bench([&]{ g.matmul(A.data(), C_kai.data()); }, iters);
+
+                gf_kai_total[v] = gflops(c.M, c.N, c.K, ms_total);
+                gf_kai_mm[v]    = gflops(c.M, c.N, c.K, ms_mm);
+                diff_kai[v]     = max_diff(C_kai.data(), C_accel.data(), c.M * c.N);
+            }
+        }
+        kai_gf_total.push_back(gf_kai_total);
+        kai_gf_mm.push_back(gf_kai_mm);
+        kai_diff.push_back(diff_kai);
+
         // Correctness vs Accelerate (ground truth)
         float diff_accel = max_diff(C_neon.data(), C_accel.data(), c.M * c.N);
         float diff_oblas = max_diff(C_neon.data(), C_oblas.data(), c.M * c.N);
@@ -248,6 +307,7 @@ int main() {
                   << std::setw(W_NUM) << std::setprecision(1) << gf_sme41
                   << std::setw(W_NUM) << std::setprecision(1) << gf_sme41zp
                   << std::setw(W_NUM) << std::setprecision(1) << gf_sme22
+                  << std::setw(W_NUM) << std::setprecision(1) << gf_kai_total[KAI_HEADLINE]
                   << std::setw(W_NUM) << std::setprecision(1) << gf_accel
                   << std::setw(W_NUM) << std::setprecision(1) << gf_oblas
                   << std::setw(W_NUM) << std::setprecision(3) << (gf_sme22 / gf_accel) // SME 2x2 vs AMX ratio
@@ -258,8 +318,63 @@ int main() {
 
     std::cout << "\n  NEON GF  = our kernel   |  Accel GF = Accelerate cblas (AMX)\n";
     std::cout << "  OBlas GF = OpenBLAS cblas (NEON, no AMX)\n";
+    std::cout << "  Kai SME2 = KleidiAI " << KleidiAI::name(KAI_KERNELS[KAI_HEADLINE]) << "\n";
+    std::cout << "             (pack + matmul, so it is comparable to the columns "
+                 "left of it)\n";
+    std::cout << "  KleidiAI kernels are driven through an outer N-block loop \u2014 they ship\n";
+    std::cout << "  no cache blocking of their own; see docs/BENCHMARKS.md \u00a70.5\n";
     std::cout << "  vs Accel / vs OBlas: ratio > 1.0 means our kernel is faster\n";
     std::cout << "  MaxDiff: max(|NEON-Accel|, |NEON-OBlas|)\n";
+
+    // =========================================================================
+    // KleidiAI breakdown
+    //
+    // These are micro-kernels, not a BLAS: they consume pre-packed operands.
+    // "+pack" is the fair comparison against everything above (our kernels,
+    // Accelerate and OpenBLAS all pack inside the timed call). "matmul" is the
+    // micro-kernel alone, which is what KleidiAI is actually optimising and
+    // what an inference runtime sees when the weights are packed once up front.
+    // =========================================================================
+    if (have_kleidiai) {
+        std::cout << "\n\n";
+        std::cout << "===========================================================================\n";
+        std::cout << "  Arm KleidiAI fp32 micro-kernels \u2014 packing cost broken out\n";
+        std::cout << "===========================================================================\n";
+        for (size_t v = 0; v < KAI_KERNELS.size(); ++v)
+            std::cout << "  " << KleidiAI::label(KAI_KERNELS[v]) << " = "
+                      << KleidiAI::name(KAI_KERNELS[v]) << "\n";
+        std::cout << "\n";
+
+        std::cout << std::left << std::setw(W_SIZE) << "Size (MxKxN)"
+                  << std::setw(W_TAG) << "Tag";
+        for (size_t v = 0; v < KAI_KERNELS.size(); ++v) {
+            const std::string l = KleidiAI::label(KAI_KERNELS[v]);
+            std::cout << std::right << std::setw(W_NUM) << (l + " +pk")
+                      << std::setw(W_NUM) << (l + " mm");
+        }
+        std::cout << std::right << std::setw(9) << "MaxDiff" << "\n";
+        std::cout << std::string(W_SIZE + W_TAG + W_NUM * 6 + 9, '-') << "\n";
+
+        for (size_t i = 0; i < kai_gf_total.size(); ++i) {
+            const auto& c = cases[i];
+            const std::string lbl = std::to_string(c.M) + "x" + std::to_string(c.K) +
+                                    "x" + std::to_string(c.N);
+            float worst = 0.0f;
+            for (float d : kai_diff[i]) worst = std::max(worst, d);
+
+            std::cout << std::left << std::fixed
+                      << std::setw(W_SIZE) << lbl
+                      << std::setw(W_TAG)  << c.tag
+                      << std::right;
+            for (size_t v = 0; v < KAI_KERNELS.size(); ++v)
+                std::cout << std::setw(W_NUM) << std::setprecision(1) << kai_gf_total[i][v]
+                          << std::setw(W_NUM) << std::setprecision(1) << kai_gf_mm[i][v];
+            std::cout << std::setw(9) << std::setprecision(5) << worst << "\n";
+        }
+
+        std::cout << "\n  \"+pk\" = pack + matmul   |   \"mm\" = matmul only, operands already packed\n";
+        std::cout << "  MaxDiff: worst |KleidiAI - Accelerate| across the three kernels\n";
+    }
 
     return 0;
 }

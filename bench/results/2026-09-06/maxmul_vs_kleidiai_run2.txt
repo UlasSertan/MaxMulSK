@@ -1,0 +1,1374 @@
+=====================================================================
+  MaxMulSK vs Arm KleidiAI — single-thread FP32 GEMM, Apple M4
+=====================================================================
+
+  Hardware
+    CPU                 : Apple M4
+    P-cores / E-cores   : 4 / 6
+    P-core L1d / L2     : 128 KiB / 16 MiB
+    RAM                 : 16.0 GiB
+    SME / SME2          : yes / yes
+    Streaming VL        : 16 x 32-bit words (512 bits)
+    OS                  : Darwin 25.5.0
+
+  Build
+    Compiler            : Homebrew Clang 22.1.8
+    Benchmark flags     : -O3 -Wall -Wextra -mcpu=apple-m4 -fopenmp
+    SME sources built at: -march=armv8.7-a+sme+sme2 (MaxMulSK kernels + adapter)
+    KleidiAI            : v1.30.0 (built from source; SME asm at
+                          -march=armv8.2-a+sve+sve2, KleidiAI's own flags)
+    MaxMulSK revision   : bb618ee
+    KleidiAI present    : yes
+    llama.cpp / ggml    : 1548a24
+    ggml build          : GGML_METAL=OFF GGML_ACCELERATE=OFF GGML_BLAS=OFF GGML_CPU_KLEIDIAI=ON GGML_OPENMP=OFF GGML_NATIVE=ON
+    ggml FP32 mul_mat   : ggml_compute_forward_mul_mat -> generic chunked
+                          path -> ggml_compute_forward_mul_mat_one_chunk ->
+                          ggml_vec_dot_f32 (one NEON dot product per output
+                          element). NOT SME, NOT an external library.
+                          llamafile/tinyBLAS is NOT used, despite
+                          GGML_LLAMAFILE=ON and sgemm.cpp being linked:
+                          ggml-cpu.c does
+                            #if defined(__ARM_FEATURE_SVE) ||
+                                defined(__ARM_FEATURE_MATMUL_INT8)
+                            #undef GGML_USE_LLAMAFILE
+                          and ggml builds its CPU variant with +i8mm, which
+                          defines __ARM_FEATURE_MATMUL_INT8. Verified two
+                          ways: an instrumented build shows the #if block is
+                          compiled out, and a GGML_LLAMAFILE=OFF build gives
+                          identical timings (42.6 vs 42.8 GFLOP/s at 1024^3).
+                          This is upstream behaviour on Apple Silicon, not a
+                          misconfiguration of this benchmark.
+
+  Threading
+    OpenMP threads      : 1 (MaxMulSK SME drivers are single-thread anyway)
+    VECLIB_MAXIMUM_THREADS = 1 (reference SGEMM only)
+    ggml KleidiAI build : GGML_CPU_KLEIDIAI=ON
+    ggml KleidiAI ver   : v1.24.0 (pinned by ggml)
+    KleidiAI dispatch   : verified, not inferred --
+                          (a) static: kai_run_matmul_clamp_f32_f32p2vlx1_
+                              f32p2vlx1biasf32_sme2_mopa is defined in
+                              libkleidiai.a and referenced by libggml-cpu.a
+                          (b) runtime: src0 allocated in the CPU_KLEIDIAI
+                              extra buffer type (required by supports_op)
+                          (c) an instrumented build resolved the executed
+                              run_kernel_ex via dladdr to
+                              kernel_run_fn10<kai_run_matmul_clamp_f32_
+                              f32p2vlx1_f32p2vlx1biasf32_sme2_mopa>, with
+                              m_step=n_step=mr=nr=32, kr=sr=1. That build is
+                              separate; no such logging exists here.
+    ggml n_threads      : 1 (set via ggml_backend_cpu_set_n_threads;
+                          verified below by CPU-time/wall-time ratio)
+    QoS                 : USER_INTERACTIVE requested (biases to P-cores).
+                          macOS exposes no thread-to-core pinning API, so
+                          core residency cannot be pinned, only biased.
+
+  Methodology
+    Timer               : std::chrono::steady_clock (monotonic)
+    Warmups             : 3 per measurement, none reported
+    Samples             : adaptive, >= 7, targeting ~0.35 s of timed work
+    Headline metric     : GFLOP/s from the MEDIAN time; FLOPs = 2*M*N*K in double
+    Inputs              : U(-1,1), mt19937 seed 42, identical for every impl
+    Reference           : Accelerate cblas_sgemm, plus FP64 dot products on
+                          32 sampled output entries per shape
+    Tolerance           : relative L2 <= 1e-04
+
+  Running (this takes several minutes) ...
+  Experiment 1: hot micro-kernel ceiling ... done
+  [square] 256 x 256 x 256 (MxKxN) ... done
+  [square] 512 x 512 x 512 (MxKxN) ... done
+  [square] 1024 x 1024 x 1024 (MxKxN) ... done
+  [square] 2048 x 2048 x 2048 (MxKxN) ... done
+  [square] 4096 x 4096 x 4096 (MxKxN) ... done
+  [large_k] 64 x 8192 x 512 (MxKxN) ... done
+  [large_k] 64 x 16384 x 512 (MxKxN) ... done
+  [large_k] 64 x 32768 x 512 (MxKxN) ... done
+  [large_k] 128 x 8192 x 512 (MxKxN) ... done
+  [large_k] 128 x 16384 x 512 (MxKxN) ... done
+  [large_k] 128 x 32768 x 512 (MxKxN) ... done
+
+  ggml's own KleidiAI init diagnostics (captured via ggml_log_set):
+    kleidiai: primary q4 kernel feature SME2
+    kleidiai: primary q8 kernel feature SME2
+    kleidiai: primary f32 kernel feature SME2
+    kleidiai: SME enabled (runtime-detected SME thread cap=1)
+
+  llama-kleidiai thread check: CPU time / wall time = 1.00
+
+  ggml thread check: CPU time / wall time = 1.00 over a large shape
+  (~1.0 confirms a single worker actually executed the matmul;
+   a 4-thread run would land near 4.0.)
+
+=====================================================================
+  Square GEMM Benchmark
+=====================================================================
+
+## End-to-End GEMM: Packing + Compute
+
+M x K x N               MaxMulSK ms  MaxMulSK GF    KleidiAI ms  KleidiAI GF      ratio     diff %  correctness
+------------------------------------------------------------------------------------------------------------------------
+256x256x256                   0.024       1400.6          0.026       1278.3      1.096      +9.6%  PASS
+512x512x512                   0.162       1660.0          0.157       1710.2      0.971      -2.9%  PASS
+1024x1024x1024                1.211       1772.8          1.212       1772.3      1.000      +0.0%  PASS
+2048x2048x2048               11.488       1495.5         10.507       1635.1      0.915      -8.5%  PASS
+4096x4096x4096              103.985       1321.7         84.019       1635.8      0.808     -19.2%  PASS
+
+  Best MaxMulSK / best KleidiAI variant per shape:
+    256x256x256          SME 1x4Acc     vs KAI 8VS       
+    512x512x512          SME 1x4AccKc   vs KAI 8VS       
+    1024x1024x1024       SME 1x4Acc     vs KAIpanel 8VS  
+    2048x2048x2048       SME 1x4AccKc   vs KAI 2VL       
+    4096x4096x4096       SME 1x4sym     vs KAI 2VL       
+
+## Kernel-Only GEMM: Packing Excluded
+
+M x K x N               MaxMulSK ms  MaxMulSK GF    KleidiAI ms  KleidiAI GF      ratio     diff %  correctness
+------------------------------------------------------------------------------------------------------------------------
+256x256x256                   0.020       1684.7          0.017       1968.9      0.856     -14.4%  PASS
+512x512x512                   0.146       1834.4          0.135       1982.9      0.925      -7.5%  PASS
+1024x1024x1024                1.125       1909.7          1.107       1940.5      0.984      -1.6%  PASS
+2048x2048x2048                9.458       1816.5          9.247       1857.9      0.978      -2.2%  PASS
+4096x4096x4096               91.128       1508.2         78.600       1748.6      0.863     -13.7%  PASS
+
+  Best MaxMulSK / best KleidiAI variant per shape:
+    256x256x256          SME 1x4Acc     vs KAI 8VS       
+    512x512x512          SME 1x4Acc     vs KAI 8VS       
+    1024x1024x1024       SME 1x4Acc     vs KAI 8VS       
+    2048x2048x2048       SME 1x4AccKc   vs KAI 2VL       
+    4096x4096x4096       SME 4x1        vs KAI 2VL       
+
+=====================================================================
+  LLM-Like Rectangular / Large-K GEMM Benchmark
+=====================================================================
+
+## End-to-End GEMM: Packing + Compute
+
+M x K x N               MaxMulSK ms  MaxMulSK GF    KleidiAI ms  KleidiAI GF      ratio     diff %  correctness
+------------------------------------------------------------------------------------------------------------------------
+64x8192x512                   0.666        805.7          0.616        871.5      0.924      -7.6%  PASS
+64x16384x512                  1.324        811.2          1.260        852.0      0.952      -4.8%  PASS
+64x32768x512                  2.961        725.2          2.525        850.4      0.853     -14.7%  PASS
+128x8192x512                  1.146        936.9          0.988       1086.8      0.862     -13.8%  PASS
+128x16384x512                 2.119       1013.5          2.014       1066.1      0.951      -4.9%  PASS
+128x32768x512                 4.758        902.7          4.239       1013.2      0.891     -10.9%  PASS
+
+  Best MaxMulSK / best KleidiAI variant per shape:
+    64x8192x512          SME 1x4sym     vs KAIpanel 2VL  
+    64x16384x512         SME 1x4Acc     vs KAIpanel 2VL  
+    64x32768x512         SME 4x1ZP      vs KAIpanel 2VL  
+    128x8192x512         SME 2x2        vs KAIpanel 2VL  
+    128x16384x512        SME 1x4Acc     vs KAIpanel 2VL  
+    128x32768x512        SME 4x1ZP      vs KAIpanel 2VL  
+
+## Kernel-Only GEMM: Packing Excluded
+
+M x K x N               MaxMulSK ms  MaxMulSK GF    KleidiAI ms  KleidiAI GF      ratio     diff %  correctness
+------------------------------------------------------------------------------------------------------------------------
+64x8192x512                   0.390       1375.4          0.377       1422.8      0.967      -3.3%  PASS
+64x16384x512                  0.960       1118.8          0.816       1316.5      0.850     -15.0%  PASS
+64x32768x512                  2.030       1057.9          2.282        941.2      1.124     +12.4%  PASS
+128x8192x512                  0.686       1564.7          0.675       1590.5      0.984      -1.6%  PASS
+128x16384x512                 1.683       1275.8          1.628       1318.8      0.967      -3.3%  PASS
+128x32768x512                 3.414       1257.9          4.999        859.1      1.464     +46.4%  PASS
+
+  Best MaxMulSK / best KleidiAI variant per shape:
+    64x8192x512          SME 1x4Acc     vs KAI 2VL       
+    64x16384x512         SME 1x4Acc     vs KAI 2VL       
+    64x32768x512         SME 1x4sym     vs KAI 8VS       
+    128x8192x512         SME 1x4AccKc   vs KAI 2VL       
+    128x16384x512        SME 1x4sym     vs KAI 8VS       
+    128x32768x512        SME 4x1        vs KAI 2VL       
+
+=====================================================================
+  Per-variant detail
+=====================================================================
+
+-- square, end_to_end --
+
+M x K x N            implementation  median ms    mean ms     min ms     stddev     reps    GFLOP/s
+----------------------------------------------------------------------------------------------------------
+256x256x256          SME 4x1             0.052      0.053      0.052      0.001      151      639.1
+256x256x256          SME 2x2             0.050      0.050      0.049      0.001      151      677.9
+256x256x256          SME 1x4             0.052      0.052      0.052      0.001      151      646.3
+256x256x256          SME 1x4sym          0.052      0.052      0.052      0.001      151      646.3
+256x256x256          SME 4x1ZP           0.050      0.050      0.050      0.001      151      676.2
+256x256x256          SME 1x4ZAIO         0.060      0.061      0.060      0.002      151      555.0
+256x256x256          SME 1x4Acc          0.024      0.024      0.024      0.000      151     1400.6
+256x256x256          SME 1x4AccKc        0.024      0.024      0.024      0.001      151     1398.1
+256x256x256          KAI 2VL             0.028      0.028      0.028      0.000      151     1189.5
+256x256x256          KAI 8VS             0.026      0.026      0.022      0.001      151     1278.3
+256x256x256          Accelerate          0.019      0.019      0.019      0.001      151     1785.6
+256x256x256          KAIpanel 2VL        0.029      0.029      0.026      0.001      151     1158.7
+256x256x256          KAIpanel 8VS        0.026      0.026      0.023      0.000      151     1274.2
+256x256x256          llama-native        0.800      0.802      0.794      0.008      101       41.9
+256x256x256          llama-native+setup      0.805      0.808      0.799      0.007      101       41.7
+256x256x256          llama-kleidiai      0.029      0.030      0.029      0.001      101     1139.1
+256x256x256          llama-kleidiai+setup      0.033      0.034      0.032      0.003      101     1014.2
+512x512x512          SME 4x1             0.261      0.262      0.261      0.002      151     1028.8
+512x512x512          SME 2x2             0.248      0.249      0.248      0.003      151     1080.2
+512x512x512          SME 1x4             0.263      0.264      0.263      0.002      151     1021.6
+512x512x512          SME 1x4sym          0.259      0.260      0.259      0.003      151     1035.3
+512x512x512          SME 4x1ZP           0.249      0.250      0.248      0.003      151     1079.9
+512x512x512          SME 1x4ZAIO         0.299      0.299      0.298      0.001      151      899.0
+512x512x512          SME 1x4Acc          0.162      0.162      0.162      0.001      151     1659.6
+512x512x512          SME 1x4AccKc        0.162      0.162      0.162      0.002      151     1660.0
+512x512x512          KAI 2VL             0.164      0.165      0.163      0.004      151     1641.4
+512x512x512          KAI 8VS             0.157      0.158      0.156      0.002      151     1710.2
+512x512x512          Accelerate          0.151      0.152      0.147      0.004      151     1773.8
+512x512x512          KAIpanel 2VL        0.166      0.167      0.165      0.002      151     1615.9
+512x512x512          KAIpanel 8VS        0.157      0.158      0.157      0.001      151     1706.6
+512x512x512          llama-native        6.119      6.127      6.091      0.025       57       43.9
+512x512x512          llama-native+setup      6.125      6.133      6.097      0.031       58       43.8
+512x512x512          llama-kleidiai      0.161      0.162      0.160      0.003      101     1663.4
+512x512x512          llama-kleidiai+setup      0.165      0.166      0.164      0.003      101     1628.1
+1024x1024x1024       SME 4x1             1.730      1.736      1.634      0.055      151     1241.6
+1024x1024x1024       SME 2x2             1.635      1.658      1.627      0.050      151     1313.3
+1024x1024x1024       SME 1x4             1.752      1.762      1.690      0.064      151     1226.1
+1024x1024x1024       SME 1x4sym          1.739      1.753      1.652      0.071      151     1235.0
+1024x1024x1024       SME 4x1ZP           1.636      1.646      1.598      0.044      151     1312.6
+1024x1024x1024       SME 1x4ZAIO         1.805      1.819      1.789      0.036      151     1190.0
+1024x1024x1024       SME 1x4Acc          1.211      1.223      1.204      0.034      151     1772.8
+1024x1024x1024       SME 1x4AccKc        1.235      1.253      1.211      0.047      151     1738.5
+1024x1024x1024       KAI 2VL             1.341      1.346      1.284      0.038      151     1600.8
+1024x1024x1024       KAI 8VS             1.341      1.345      1.275      0.065      151     1601.3
+1024x1024x1024       Accelerate          1.276      1.280      1.269      0.014      151     1682.7
+1024x1024x1024       KAIpanel 2VL        1.234      1.248      1.226      0.048      151     1740.9
+1024x1024x1024       KAIpanel 8VS        1.212      1.217      1.191      0.026      151     1772.3
+1024x1024x1024       llama-native       50.523     50.549     50.381      0.141        7       42.5
+1024x1024x1024       llama-native+setup     50.639     50.686     50.358      0.221        7       42.4
+1024x1024x1024       llama-kleidiai      1.177      1.187      1.170      0.021      101     1824.2
+1024x1024x1024       llama-kleidiai+setup      1.193      1.203      1.175      0.030      101     1799.8
+2048x2048x2048       SME 4x1            13.514     13.635     13.341      0.264       25     1271.2
+2048x2048x2048       SME 2x2            15.726     15.694     15.170      0.274       23     1092.5
+2048x2048x2048       SME 1x4            15.554     15.583     13.249      1.416       27     1104.5
+2048x2048x2048       SME 1x4sym         13.898     13.856     12.871      0.760       27     1236.2
+2048x2048x2048       SME 4x1ZP          15.562     15.540     14.964      0.216       24     1103.9
+2048x2048x2048       SME 1x4ZAIO        13.368     13.448     12.707      0.563       28     1285.2
+2048x2048x2048       SME 1x4Acc         12.067     12.102     11.063      0.967       29     1423.7
+2048x2048x2048       SME 1x4AccKc       11.488     11.911     11.055      0.884       27     1495.5
+2048x2048x2048       KAI 2VL            10.507     10.571     10.449      0.130       34     1635.1
+2048x2048x2048       KAI 8VS            10.946     11.013     10.889      0.137       33     1569.6
+2048x2048x2048       Accelerate         10.833     10.881     10.681      0.160       32     1585.8
+2048x2048x2048       KAIpanel 2VL       10.910     10.932     10.743      0.146       32     1574.7
+2048x2048x2048       KAIpanel 8VS       11.897     11.966     11.595      0.281       30     1444.1
+2048x2048x2048       llama-native      469.784    469.737    469.015      0.556        5       36.6
+2048x2048x2048       llama-native+setup    470.070    469.810    468.773      0.732        5       36.5
+2048x2048x2048       llama-kleidiai     16.895     17.127     16.599      0.563       22     1016.9
+2048x2048x2048       llama-kleidiai+setup     16.846     17.013     16.618      0.381       21     1019.8
+4096x4096x4096       SME 4x1           111.078    111.347    110.800      0.742        7     1237.3
+4096x4096x4096       SME 2x2           127.423    127.714    126.920      0.640        7     1078.6
+4096x4096x4096       SME 1x4           107.891    108.671    106.285      2.510        7     1273.9
+4096x4096x4096       SME 1x4sym        103.985    103.902    101.544      1.885        7     1321.7
+4096x4096x4096       SME 4x1ZP         127.921    127.986    127.698      0.204        7     1074.4
+4096x4096x4096       SME 1x4ZAIO       131.027    129.993    120.052      4.820        7     1048.9
+4096x4096x4096       SME 1x4Acc        117.365    114.372    105.802      5.981        7     1171.0
+4096x4096x4096       SME 1x4AccKc      115.352    115.936    107.347      4.607        7     1191.5
+4096x4096x4096       KAI 2VL            84.019     84.034     83.458      0.499        7     1635.8
+4096x4096x4096       KAI 8VS            86.012     85.833     85.189      0.461        7     1597.9
+4096x4096x4096       Accelerate         89.165     89.264     88.477      0.841        7     1541.4
+4096x4096x4096       KAIpanel 2VL       93.002     93.066     92.592      0.443        7     1477.8
+4096x4096x4096       KAIpanel 8VS       99.014     99.155     98.376      0.914        7     1388.1
+4096x4096x4096       llama-native     3858.704   3859.274   3857.587      1.883        5       35.6
+4096x4096x4096       llama-native+setup   3857.791   3857.510   3856.240      0.831        5       35.6
+4096x4096x4096       llama-kleidiai    152.482    152.360    150.009      1.556        5      901.3
+4096x4096x4096       llama-kleidiai+setup    152.371    152.288    150.954      0.809        5      902.0
+
+-- square, kernel_only --
+
+M x K x N            implementation  median ms    mean ms     min ms     stddev     reps    GFLOP/s
+----------------------------------------------------------------------------------------------------------
+256x256x256          SME 4x1             0.045      0.045      0.045      0.000      151      746.4
+256x256x256          SME 2x2             0.045      0.046      0.045      0.002      151      742.9
+256x256x256          SME 1x4             0.045      0.045      0.045      0.001      151      746.4
+256x256x256          SME 1x4sym          0.045      0.045      0.044      0.000      151      747.0
+256x256x256          SME 4x1ZP           0.045      0.045      0.044      0.001      151      746.4
+256x256x256          SME 1x4Acc          0.020      0.020      0.020      0.000      151     1684.7
+256x256x256          SME 1x4AccKc        0.020      0.020      0.020      0.001      151     1684.7
+256x256x256          KAI 2VL             0.019      0.019      0.019      0.000      151     1731.8
+256x256x256          KAI 8VS             0.017      0.017      0.017      0.001      151     1968.9
+512x512x512          SME 4x1             0.232      0.234      0.232      0.003      151     1156.0
+512x512x512          SME 2x2             0.232      0.234      0.232      0.003      151     1155.0
+512x512x512          SME 1x4             0.235      0.236      0.235      0.002      151     1140.1
+512x512x512          SME 1x4sym          0.232      0.233      0.232      0.003      151     1156.0
+512x512x512          SME 4x1ZP           0.232      0.234      0.232      0.003      151     1155.6
+512x512x512          SME 1x4Acc          0.146      0.147      0.146      0.002      151     1834.4
+512x512x512          SME 1x4AccKc        0.146      0.148      0.146      0.003      151     1834.4
+512x512x512          KAI 2VL             0.144      0.146      0.144      0.003      151     1864.7
+512x512x512          KAI 8VS             0.135      0.137      0.135      0.002      151     1982.9
+1024x1024x1024       SME 4x1             1.472      1.481      1.457      0.030      151     1459.3
+1024x1024x1024       SME 2x2             1.473      1.484      1.457      0.038      151     1457.7
+1024x1024x1024       SME 1x4             1.518      1.528      1.510      0.026      151     1414.8
+1024x1024x1024       SME 1x4sym          1.464      1.473      1.458      0.022      151     1466.4
+1024x1024x1024       SME 4x1ZP           1.478      1.494      1.456      0.043      151     1453.3
+1024x1024x1024       SME 1x4Acc          1.125      1.127      1.118      0.008      151     1909.7
+1024x1024x1024       SME 1x4AccKc        1.125      1.143      1.119      0.038      151     1908.4
+1024x1024x1024       KAI 2VL             1.114      1.116      1.109      0.010      151     1927.4
+1024x1024x1024       KAI 8VS             1.107      1.108      1.103      0.008      151     1940.5
+2048x2048x2048       SME 4x1            11.280     11.330     11.215      0.110       31     1523.1
+2048x2048x2048       SME 2x2            13.359     13.354     13.034      0.154       27     1286.0
+2048x2048x2048       SME 1x4            12.552     12.614     12.255      0.320       28     1368.7
+2048x2048x2048       SME 1x4sym         11.436     11.489     11.346      0.176       31     1502.3
+2048x2048x2048       SME 4x1ZP          13.220     13.190     13.007      0.101       27     1299.6
+2048x2048x2048       SME 1x4Acc          9.467      9.506      9.421      0.084       37     1814.8
+2048x2048x2048       SME 1x4AccKc        9.458      9.482      9.407      0.082       38     1816.5
+2048x2048x2048       KAI 2VL             9.247      9.295      9.204      0.089       38     1857.9
+2048x2048x2048       KAI 8VS             9.378      9.407      9.318      0.076       38     1832.0
+4096x4096x4096       SME 4x1            91.128     91.294     90.742      0.511        7     1508.2
+4096x4096x4096       SME 2x2           108.161    108.149    108.084      0.045        7     1270.7
+4096x4096x4096       SME 1x4            96.925     97.550     96.222      1.291        7     1418.0
+4096x4096x4096       SME 1x4sym         93.629     94.057     92.127      1.632        7     1467.9
+4096x4096x4096       SME 4x1ZP         106.948    106.842    106.643      0.159        7     1285.1
+4096x4096x4096       SME 1x4Acc        127.416    130.811    124.114      7.452        7     1078.7
+4096x4096x4096       SME 1x4AccKc      137.498    135.605    123.326      8.043        7      999.6
+4096x4096x4096       KAI 2VL            78.600     78.586     77.907      0.453        7     1748.6
+4096x4096x4096       KAI 8VS            78.979     79.133     77.956      1.193        7     1740.2
+
+-- large_k, end_to_end --
+
+M x K x N            implementation  median ms    mean ms     min ms     stddev     reps    GFLOP/s
+----------------------------------------------------------------------------------------------------------
+64x8192x512          SME 4x1             0.718      0.725      0.699      0.021      151      748.0
+64x8192x512          SME 2x2             0.682      0.693      0.674      0.040      151      787.7
+64x8192x512          SME 1x4             0.679      0.682      0.644      0.025      151      791.0
+64x8192x512          SME 1x4sym          0.666      0.669      0.632      0.029      151      805.7
+64x8192x512          SME 4x1ZP           0.712      0.720      0.697      0.023      151      754.2
+64x8192x512          SME 1x4ZAIO         0.759      0.774      0.730      0.044      151      707.5
+64x8192x512          SME 1x4Acc          0.718      0.719      0.643      0.050      151      748.1
+64x8192x512          SME 1x4AccKc        0.677      0.692      0.615      0.056      151      793.1
+64x8192x512          KAI 2VL             1.025      1.036      0.978      0.047      151      523.8
+64x8192x512          KAI 8VS             1.069      1.074      1.019      0.041      151      502.2
+64x8192x512          Accelerate          0.556      0.560      0.544      0.019      151      966.2
+64x8192x512          KAIpanel 2VL        0.616      0.624      0.608      0.018      151      871.5
+64x8192x512          KAIpanel 8VS        0.653      0.657      0.640      0.015      151      821.7
+64x8192x512          llama-native       15.366     15.395     15.250      0.108       23       34.9
+64x8192x512          llama-native+setup     15.304     15.330     15.236      0.098       23       35.1
+64x8192x512          llama-kleidiai      1.312      1.330      1.281      0.054      101      409.2
+64x8192x512          llama-kleidiai+setup      1.324      1.351      1.290      0.067      101      405.4
+64x16384x512         SME 4x1             1.520      1.536      1.480      0.045      151      706.6
+64x16384x512         SME 2x2             1.493      1.504      1.484      0.028      151      719.4
+64x16384x512         SME 1x4             1.533      1.536      1.511      0.019      151      700.2
+64x16384x512         SME 1x4sym          1.496      1.506      1.475      0.032      151      717.7
+64x16384x512         SME 4x1ZP           1.487      1.503      1.472      0.037      151      722.1
+64x16384x512         SME 1x4ZAIO         1.679      1.732      1.620      0.105      151      639.5
+64x16384x512         SME 1x4Acc          1.324      1.328      1.242      0.073      151      811.2
+64x16384x512         SME 1x4AccKc        1.356      1.363      1.261      0.086      151      792.0
+64x16384x512         KAI 2VL             2.124      2.162      2.094      0.091      151      505.6
+64x16384x512         KAI 8VS             2.203      2.225      2.151      0.069      151      487.5
+64x16384x512         Accelerate          1.253      1.258      1.243      0.021      151      856.9
+64x16384x512         KAIpanel 2VL        1.260      1.269      1.248      0.023      151      852.0
+64x16384x512         KAIpanel 8VS        1.389      1.403      1.348      0.041      151      773.1
+64x16384x512         llama-native       34.296     34.300     34.024      0.131       11       31.3
+64x16384x512         llama-native+setup     33.994     34.078     33.904      0.196       11       31.6
+64x16384x512         llama-kleidiai      2.720      2.743      2.669      0.079      101      394.7
+64x16384x512         llama-kleidiai+setup      2.731      2.774      2.679      0.113      101      393.2
+64x32768x512         SME 4x1             3.028      3.046      2.995      0.055      117      709.3
+64x32768x512         SME 2x2             2.973      2.999      2.959      0.056      118      722.3
+64x32768x512         SME 1x4             3.072      3.083      3.043      0.043      108      699.1
+64x32768x512         SME 1x4sym          2.999      3.021      2.968      0.059      118      716.2
+64x32768x512         SME 4x1ZP           2.961      2.984      2.947      0.055      115      725.2
+64x32768x512         SME 1x4ZAIO         4.904      4.982      4.767      0.225       73      437.9
+64x32768x512         SME 1x4Acc          3.438      3.481      3.222      0.210      105      624.6
+64x32768x512         SME 1x4AccKc        3.327      3.385      3.167      0.187      104      645.5
+64x32768x512         KAI 2VL             4.888      4.944      4.821      0.141       72      439.3
+64x32768x512         KAI 8VS             4.937      5.007      4.891      0.153       69      435.0
+64x32768x512         Accelerate          2.519      2.544      2.492      0.061      140      852.5
+64x32768x512         KAIpanel 2VL        2.525      2.544      2.503      0.048      129      850.4
+64x32768x512         KAIpanel 8VS        2.784      2.811      2.741      0.068      126      771.2
+64x32768x512         llama-native       72.849     72.822     72.698      0.073        5       29.5
+64x32768x512         llama-native+setup     72.986     73.240     72.751      0.630        5       29.4
+64x32768x512         llama-kleidiai      6.295      6.340      6.068      0.171       56      341.1
+64x32768x512         llama-kleidiai+setup      6.288      6.314      6.014      0.150       56      341.5
+128x8192x512         SME 4x1             1.210      1.222      1.176      0.032      151      887.5
+128x8192x512         SME 2x2             1.146      1.150      1.127      0.021      151      936.9
+128x8192x512         SME 1x4             1.187      1.195      1.143      0.032      151      904.9
+128x8192x512         SME 1x4sym          1.153      1.164      1.113      0.046      151      931.4
+128x8192x512         SME 4x1ZP           1.161      1.161      1.123      0.025      151      924.7
+128x8192x512         SME 1x4ZAIO         1.300      1.296      1.165      0.055      151      825.6
+128x8192x512         SME 1x4Acc          1.211      1.252      1.074      0.136      151      886.5
+128x8192x512         SME 1x4AccKc        1.278      1.284      1.067      0.125      151      840.0
+128x8192x512         KAI 2VL             1.438      1.455      1.389      0.058      151      746.9
+128x8192x512         KAI 8VS             1.490      1.509      1.425      0.064      151      720.8
+128x8192x512         Accelerate          0.903      0.922      0.888      0.038      151     1188.6
+128x8192x512         KAIpanel 2VL        0.988      0.996      0.979      0.024      151     1086.8
+128x8192x512         KAIpanel 8VS        1.029      1.041      0.989      0.037      151     1043.2
+128x8192x512         llama-native       30.452     30.566     30.389      0.192       12       35.3
+128x8192x512         llama-native+setup     30.469     30.474     30.359      0.092       12       35.2
+128x8192x512         llama-kleidiai      1.608      1.626      1.584      0.051      101      667.8
+128x8192x512         llama-kleidiai+setup      1.604      1.625      1.579      0.053      101      669.6
+128x16384x512        SME 4x1             2.448      2.461      2.421      0.039      145      877.2
+128x16384x512        SME 2x2             2.383      2.407      2.358      0.051      148      901.3
+128x16384x512        SME 1x4             2.476      2.493      2.436      0.049      143      867.2
+128x16384x512        SME 1x4sym          2.404      2.416      2.374      0.042      147      893.4
+128x16384x512        SME 4x1ZP           2.383      2.420      2.365      0.189      148      901.3
+128x16384x512        SME 1x4ZAIO         3.041      3.104      2.963      0.156      111      706.2
+128x16384x512        SME 1x4Acc          2.119      2.178      2.009      0.160      151     1013.5
+128x16384x512        SME 1x4AccKc        2.134      2.168      1.981      0.146      133     1006.1
+128x16384x512        KAI 2VL             3.229      3.263      3.183      0.090      109      665.0
+128x16384x512        KAI 8VS             3.216      3.286      3.144      0.169      109      667.8
+128x16384x512        Accelerate          1.888      1.900      1.871      0.037      151     1137.6
+128x16384x512        KAIpanel 2VL        2.014      2.029      1.997      0.041      151     1066.1
+128x16384x512        KAIpanel 8VS        2.104      2.128      2.072      0.066      151     1020.6
+128x16384x512        llama-native       68.083     68.025     67.727      0.236        6       31.5
+128x16384x512        llama-native+setup     68.062     68.228     67.813      0.443        6       31.6
+128x16384x512        llama-kleidiai      3.622      3.666      3.561      0.126       97      592.9
+128x16384x512        llama-kleidiai+setup      3.638      3.698      3.587      0.149       91      590.3
+128x32768x512        SME 4x1             4.924      4.953      4.867      0.076       72      872.3
+128x32768x512        SME 2x2             4.766      4.800      4.729      0.082       74      901.1
+128x32768x512        SME 1x4             4.955      4.983      4.911      0.069       68      866.8
+128x32768x512        SME 1x4sym          4.825      4.850      4.771      0.073       73      890.1
+128x32768x512        SME 4x1ZP           4.758      4.821      4.735      0.201       74      902.7
+128x32768x512        SME 1x4ZAIO         7.729      7.838      7.644      0.220       46      555.7
+128x32768x512        SME 1x4Acc          5.923      5.974      5.767      0.199       59      725.1
+128x32768x512        SME 1x4AccKc        5.978      6.045      5.859      0.190       54      718.4
+128x32768x512        KAI 2VL             7.766      7.846      7.652      0.213       46      553.0
+128x32768x512        KAI 8VS             7.880      8.022      7.820      0.253       45      545.0
+128x32768x512        Accelerate          3.791      3.808      3.750      0.055       89     1132.9
+128x32768x512        KAIpanel 2VL        4.239      4.211      4.024      0.121       83     1013.2
+128x32768x512        KAIpanel 8VS        4.240      4.253      4.170      0.063       84     1013.0
+128x32768x512        llama-native      148.228    148.582    147.786      1.011        5       29.0
+128x32768x512        llama-native+setup    146.830    146.859    146.574      0.230        5       29.3
+128x32768x512        llama-kleidiai      9.091      9.144      8.822      0.189       39      472.5
+128x32768x512        llama-kleidiai+setup      9.121      9.237      8.950      0.262       39      470.9
+
+-- large_k, kernel_only --
+
+M x K x N            implementation  median ms    mean ms     min ms     stddev     reps    GFLOP/s
+----------------------------------------------------------------------------------------------------------
+64x8192x512          SME 4x1             0.464      0.471      0.408      0.050      151     1158.0
+64x8192x512          SME 2x2             0.556      0.564      0.544      0.021      151      966.0
+64x8192x512          SME 1x4             0.510      0.513      0.505      0.013      151     1053.6
+64x8192x512          SME 1x4sym          0.471      0.479      0.459      0.018      151     1140.7
+64x8192x512          SME 4x1ZP           0.508      0.526      0.488      0.034      151     1057.4
+64x8192x512          SME 1x4Acc          0.390      0.391      0.387      0.004      151     1375.4
+64x8192x512          SME 1x4AccKc        0.397      0.402      0.388      0.014      151     1352.2
+64x8192x512          KAI 2VL             0.377      0.379      0.373      0.004      151     1422.8
+64x8192x512          KAI 8VS             0.400      0.407      0.391      0.018      151     1342.0
+64x16384x512         SME 4x1             1.037      1.059      1.017      0.050      151     1035.5
+64x16384x512         SME 2x2             1.198      1.208      1.189      0.026      151      896.5
+64x16384x512         SME 1x4             1.109      1.119      1.101      0.030      151      968.3
+64x16384x512         SME 1x4sym          1.014      1.021      1.003      0.020      151     1059.0
+64x16384x512         SME 4x1ZP           1.108      1.119      1.095      0.033      151      969.2
+64x16384x512         SME 1x4Acc          0.960      0.968      0.952      0.027      151     1118.8
+64x16384x512         SME 1x4AccKc        0.966      0.983      0.951      0.047      151     1111.8
+64x16384x512         KAI 2VL             0.816      0.833      0.802      0.039      151     1316.5
+64x16384x512         KAI 8VS             0.851      0.860      0.844      0.027      151     1262.2
+64x32768x512         SME 4x1             2.073      2.104      2.058      0.068      151     1035.8
+64x32768x512         SME 2x2             2.377      2.393      2.363      0.044      148      903.6
+64x32768x512         SME 1x4             2.227      2.250      2.216      0.053      151      964.2
+64x32768x512         SME 1x4sym          2.030      2.050      2.017      0.046      151     1057.9
+64x32768x512         SME 4x1ZP           2.216      2.239      2.205      0.061      151      969.0
+64x32768x512         SME 1x4Acc          2.556      2.596      2.531      0.087      136      840.3
+64x32768x512         SME 1x4AccKc        2.577      2.618      2.533      0.099      121      833.4
+64x32768x512         KAI 2VL             2.291      2.322      2.265      0.082      151      937.2
+64x32768x512         KAI 8VS             2.282      2.325      2.260      0.106      151      941.2
+128x8192x512         SME 4x1             0.835      0.846      0.813      0.027      151     1285.6
+128x8192x512         SME 2x2             0.955      0.959      0.941      0.016      151     1124.7
+128x8192x512         SME 1x4             0.900      0.907      0.874      0.028      151     1192.8
+128x8192x512         SME 1x4sym          0.833      0.843      0.814      0.024      151     1289.1
+128x8192x512         SME 4x1ZP           1.050      1.050      1.018      0.015      151     1023.1
+128x8192x512         SME 1x4Acc          0.688      0.692      0.682      0.013      151     1561.6
+128x8192x512         SME 1x4AccKc        0.686      0.691      0.680      0.013      151     1564.7
+128x8192x512         KAI 2VL             0.675      0.684      0.655      0.023      151     1590.5
+128x8192x512         KAI 8VS             0.680      0.680      0.672      0.006      151     1579.3
+128x16384x512        SME 4x1             1.705      1.719      1.670      0.039      151     1259.4
+128x16384x512        SME 2x2             1.955      1.969      1.935      0.041      151     1098.2
+128x16384x512        SME 1x4             1.863      1.878      1.853      0.038      151     1152.5
+128x16384x512        SME 1x4sym          1.683      1.690      1.671      0.020      151     1275.8
+128x16384x512        SME 4x1ZP           2.174      2.180      2.148      0.020      151      987.8
+128x16384x512        SME 1x4Acc          1.945      1.976      1.895      0.083      151     1104.2
+128x16384x512        SME 1x4AccKc        1.972      1.989      1.895      0.073      151     1088.9
+128x16384x512        KAI 2VL             1.708      1.729      1.693      0.055      151     1257.6
+128x16384x512        KAI 8VS             1.628      1.669      1.589      0.105      151     1318.8
+128x32768x512        SME 4x1             3.414      3.452      3.391      0.074       97     1257.9
+128x32768x512        SME 2x2             3.918      3.931      3.884      0.047       90     1096.2
+128x32768x512        SME 1x4             3.771      3.808      3.719      0.096       94     1139.0
+128x32768x512        SME 1x4sym          3.428      3.441      3.360      0.057      103     1253.1
+128x32768x512        SME 4x1ZP           4.436      4.445      4.350      0.064       81      968.3
+128x32768x512        SME 1x4Acc          5.068      5.137      4.722      0.273       57      847.5
+128x32768x512        SME 1x4AccKc        4.493      4.618      4.417      0.244       71      956.0
+128x32768x512        KAI 2VL             4.999      5.045      4.624      0.321       62      859.1
+128x32768x512        KAI 8VS             5.017      5.131      4.885      0.246       70      856.0
+
+=====================================================================
+  Correctness
+=====================================================================
+
+M x K x N            mode         implementation    max abs err     rel L2 err  max abs vs FP64  status
+----------------------------------------------------------------------------------------------------------------
+64x128x16            hot_microkernel SME 4x1             0.000e+00      0.000e+00        0.000e+00  PASS
+64x128x16            hot_microkernel SME 4x1 [iso]       0.000e+00      0.000e+00        0.000e+00  PASS
+32x128x32            hot_microkernel SME 2x2             0.000e+00      0.000e+00        0.000e+00  PASS
+32x128x32            hot_microkernel SME 2x2 [iso]       0.000e+00      0.000e+00        0.000e+00  PASS
+16x128x64            hot_microkernel SME 1x4             0.000e+00      0.000e+00        0.000e+00  PASS
+16x128x64            hot_microkernel SME 1x4 [iso]       0.000e+00      0.000e+00        0.000e+00  PASS
+16x128x64            hot_microkernel SME 1x4sym          0.000e+00      0.000e+00        0.000e+00  PASS
+16x128x64            hot_microkernel SME 1x4sym [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+64x128x16            hot_microkernel SME 4x1ZP           0.000e+00      0.000e+00        0.000e+00  PASS
+64x128x16            hot_microkernel SME 4x1ZP [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x128x64            hot_microkernel SME 1x4Acc          0.000e+00      0.000e+00        0.000e+00  PASS
+16x128x64            hot_microkernel SME 1x4Acc [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x128x64            hot_microkernel SME 1x4Acc [amort]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x128x64            hot_microkernel SME 1x4AccKc        0.000e+00      0.000e+00        0.000e+00  PASS
+16x128x64            hot_microkernel SME 1x4AccKc [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x128x64            hot_microkernel SME 1x4AccKc [amort]      0.000e+00      0.000e+00        0.000e+00  PASS
+32x128x32            hot_microkernel KAI 2VL             0.000e+00      0.000e+00        0.000e+00  PASS
+16x128x16            hot_microkernel KAI 8VS             3.338e-06      2.031e-07        0.000e+00  PASS
+64x256x16            hot_microkernel SME 4x1             0.000e+00      0.000e+00        0.000e+00  PASS
+64x256x16            hot_microkernel SME 4x1 [iso]       0.000e+00      0.000e+00        0.000e+00  PASS
+32x256x32            hot_microkernel SME 2x2             0.000e+00      0.000e+00        0.000e+00  PASS
+32x256x32            hot_microkernel SME 2x2 [iso]       0.000e+00      0.000e+00        0.000e+00  PASS
+16x256x64            hot_microkernel SME 1x4             0.000e+00      0.000e+00        0.000e+00  PASS
+16x256x64            hot_microkernel SME 1x4 [iso]       0.000e+00      0.000e+00        0.000e+00  PASS
+16x256x64            hot_microkernel SME 1x4sym          0.000e+00      0.000e+00        0.000e+00  PASS
+16x256x64            hot_microkernel SME 1x4sym [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+64x256x16            hot_microkernel SME 4x1ZP           0.000e+00      0.000e+00        0.000e+00  PASS
+64x256x16            hot_microkernel SME 4x1ZP [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x256x64            hot_microkernel SME 1x4Acc          0.000e+00      0.000e+00        0.000e+00  PASS
+16x256x64            hot_microkernel SME 1x4Acc [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x256x64            hot_microkernel SME 1x4Acc [amort]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x256x64            hot_microkernel SME 1x4AccKc        0.000e+00      0.000e+00        0.000e+00  PASS
+16x256x64            hot_microkernel SME 1x4AccKc [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x256x64            hot_microkernel SME 1x4AccKc [amort]      0.000e+00      0.000e+00        0.000e+00  PASS
+32x256x32            hot_microkernel KAI 2VL             0.000e+00      0.000e+00        0.000e+00  PASS
+16x256x16            hot_microkernel KAI 8VS             5.722e-06      2.753e-07        0.000e+00  PASS
+64x512x16            hot_microkernel SME 4x1             0.000e+00      0.000e+00        0.000e+00  PASS
+64x512x16            hot_microkernel SME 4x1 [iso]       0.000e+00      0.000e+00        0.000e+00  PASS
+32x512x32            hot_microkernel SME 2x2             0.000e+00      0.000e+00        0.000e+00  PASS
+32x512x32            hot_microkernel SME 2x2 [iso]       0.000e+00      0.000e+00        0.000e+00  PASS
+16x512x64            hot_microkernel SME 1x4             0.000e+00      0.000e+00        0.000e+00  PASS
+16x512x64            hot_microkernel SME 1x4 [iso]       0.000e+00      0.000e+00        0.000e+00  PASS
+16x512x64            hot_microkernel SME 1x4sym          0.000e+00      0.000e+00        0.000e+00  PASS
+16x512x64            hot_microkernel SME 1x4sym [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+64x512x16            hot_microkernel SME 4x1ZP           0.000e+00      0.000e+00        0.000e+00  PASS
+64x512x16            hot_microkernel SME 4x1ZP [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x512x64            hot_microkernel SME 1x4Acc          0.000e+00      0.000e+00        0.000e+00  PASS
+16x512x64            hot_microkernel SME 1x4Acc [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x512x64            hot_microkernel SME 1x4Acc [amort]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x512x64            hot_microkernel SME 1x4AccKc        0.000e+00      0.000e+00        0.000e+00  PASS
+16x512x64            hot_microkernel SME 1x4AccKc [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x512x64            hot_microkernel SME 1x4AccKc [amort]      0.000e+00      0.000e+00        0.000e+00  PASS
+32x512x32            hot_microkernel KAI 2VL             0.000e+00      0.000e+00        0.000e+00  PASS
+16x512x16            hot_microkernel KAI 8VS             1.431e-05      4.871e-07        0.000e+00  PASS
+64x1024x16           hot_microkernel SME 4x1             0.000e+00      0.000e+00        0.000e+00  PASS
+64x1024x16           hot_microkernel SME 4x1 [iso]       0.000e+00      0.000e+00        0.000e+00  PASS
+32x1024x32           hot_microkernel SME 2x2             0.000e+00      0.000e+00        0.000e+00  PASS
+32x1024x32           hot_microkernel SME 2x2 [iso]       0.000e+00      0.000e+00        0.000e+00  PASS
+16x1024x64           hot_microkernel SME 1x4             0.000e+00      0.000e+00        0.000e+00  PASS
+16x1024x64           hot_microkernel SME 1x4 [iso]       0.000e+00      0.000e+00        0.000e+00  PASS
+16x1024x64           hot_microkernel SME 1x4sym          0.000e+00      0.000e+00        0.000e+00  PASS
+16x1024x64           hot_microkernel SME 1x4sym [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+64x1024x16           hot_microkernel SME 4x1ZP           0.000e+00      0.000e+00        0.000e+00  PASS
+64x1024x16           hot_microkernel SME 4x1ZP [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x1024x64           hot_microkernel SME 1x4Acc          0.000e+00      0.000e+00        0.000e+00  PASS
+16x1024x64           hot_microkernel SME 1x4Acc [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x1024x64           hot_microkernel SME 1x4Acc [amort]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x1024x64           hot_microkernel SME 1x4AccKc        0.000e+00      0.000e+00        0.000e+00  PASS
+16x1024x64           hot_microkernel SME 1x4AccKc [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x1024x64           hot_microkernel SME 1x4AccKc [amort]      0.000e+00      0.000e+00        0.000e+00  PASS
+32x1024x32           hot_microkernel KAI 2VL             0.000e+00      0.000e+00        0.000e+00  PASS
+16x1024x16           hot_microkernel KAI 8VS             2.670e-05      6.158e-07        0.000e+00  PASS
+64x2048x16           hot_microkernel SME 4x1             0.000e+00      0.000e+00        0.000e+00  PASS
+64x2048x16           hot_microkernel SME 4x1 [iso]       0.000e+00      0.000e+00        0.000e+00  PASS
+32x2048x32           hot_microkernel SME 2x2             0.000e+00      0.000e+00        0.000e+00  PASS
+32x2048x32           hot_microkernel SME 2x2 [iso]       0.000e+00      0.000e+00        0.000e+00  PASS
+16x2048x64           hot_microkernel SME 1x4             0.000e+00      0.000e+00        0.000e+00  PASS
+16x2048x64           hot_microkernel SME 1x4 [iso]       0.000e+00      0.000e+00        0.000e+00  PASS
+16x2048x64           hot_microkernel SME 1x4sym          0.000e+00      0.000e+00        0.000e+00  PASS
+16x2048x64           hot_microkernel SME 1x4sym [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+64x2048x16           hot_microkernel SME 4x1ZP           0.000e+00      0.000e+00        0.000e+00  PASS
+64x2048x16           hot_microkernel SME 4x1ZP [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x2048x64           hot_microkernel SME 1x4Acc          0.000e+00      0.000e+00        0.000e+00  PASS
+16x2048x64           hot_microkernel SME 1x4Acc [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x2048x64           hot_microkernel SME 1x4Acc [amort]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x2048x64           hot_microkernel SME 1x4AccKc        0.000e+00      0.000e+00        0.000e+00  PASS
+16x2048x64           hot_microkernel SME 1x4AccKc [iso]      0.000e+00      0.000e+00        0.000e+00  PASS
+16x2048x64           hot_microkernel SME 1x4AccKc [amort]      0.000e+00      0.000e+00        0.000e+00  PASS
+32x2048x32           hot_microkernel KAI 2VL             0.000e+00      0.000e+00        0.000e+00  PASS
+16x2048x16           hot_microkernel KAI 8VS             4.768e-05      9.018e-07        0.000e+00  PASS
+256x256x256          end_to_end   SME 4x1             0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          end_to_end   SME 2x2             0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          end_to_end   SME 1x4             0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          end_to_end   SME 1x4sym          0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          end_to_end   SME 4x1ZP           0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          end_to_end   SME 1x4ZAIO         0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          end_to_end   SME 1x4Acc          0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          end_to_end   SME 1x4AccKc        0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          end_to_end   KAI 2VL             0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          end_to_end   KAI 8VS             0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          end_to_end   Accelerate          0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          kernel_only  SME 4x1             0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          kernel_only  SME 2x2             0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          kernel_only  SME 1x4             0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          kernel_only  SME 1x4sym          0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          kernel_only  SME 4x1ZP           0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          kernel_only  SME 1x4Acc          0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          kernel_only  SME 1x4AccKc        0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          kernel_only  KAI 2VL             0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          kernel_only  KAI 8VS             0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          end_to_end   KAIpanel 2VL        0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          end_to_end   KAIpanel 8VS        0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          end_to_end   llama-native        1.526e-05      3.030e-07        1.291e-06  PASS
+256x256x256          end_to_end   llama-native+setup      1.526e-05      3.030e-07        1.291e-06  PASS
+256x256x256          end_to_end   llama-kleidiai      0.000e+00      0.000e+00        2.248e-06  PASS
+256x256x256          end_to_end   llama-kleidiai+setup      0.000e+00      0.000e+00        2.248e-06  PASS
+512x512x512          end_to_end   SME 4x1             0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          end_to_end   SME 2x2             0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          end_to_end   SME 1x4             0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          end_to_end   SME 1x4sym          0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          end_to_end   SME 4x1ZP           0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          end_to_end   SME 1x4ZAIO         0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          end_to_end   SME 1x4Acc          0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          end_to_end   SME 1x4AccKc        0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          end_to_end   KAI 2VL             0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          end_to_end   KAI 8VS             0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          end_to_end   Accelerate          0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          kernel_only  SME 4x1             0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          kernel_only  SME 2x2             0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          kernel_only  SME 1x4             0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          kernel_only  SME 1x4sym          0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          kernel_only  SME 4x1ZP           0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          kernel_only  SME 1x4Acc          0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          kernel_only  SME 1x4AccKc        0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          kernel_only  KAI 2VL             0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          kernel_only  KAI 8VS             0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          end_to_end   KAIpanel 2VL        0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          end_to_end   KAIpanel 8VS        0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          end_to_end   llama-native        3.052e-05      4.231e-07        1.436e-06  PASS
+512x512x512          end_to_end   llama-native+setup      3.052e-05      4.231e-07        1.436e-06  PASS
+512x512x512          end_to_end   llama-kleidiai      0.000e+00      0.000e+00        6.646e-06  PASS
+512x512x512          end_to_end   llama-kleidiai+setup      0.000e+00      0.000e+00        6.646e-06  PASS
+1024x1024x1024       end_to_end   SME 4x1             0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       end_to_end   SME 2x2             0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       end_to_end   SME 1x4             0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       end_to_end   SME 1x4sym          0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       end_to_end   SME 4x1ZP           0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       end_to_end   SME 1x4ZAIO         0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       end_to_end   SME 1x4Acc          0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       end_to_end   SME 1x4AccKc        0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       end_to_end   KAI 2VL             0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       end_to_end   KAI 8VS             0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       end_to_end   Accelerate          0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       kernel_only  SME 4x1             0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       kernel_only  SME 2x2             0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       kernel_only  SME 1x4             0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       kernel_only  SME 1x4sym          0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       kernel_only  SME 4x1ZP           0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       kernel_only  SME 1x4Acc          0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       kernel_only  SME 1x4AccKc        0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       kernel_only  KAI 2VL             0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       kernel_only  KAI 8VS             0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       end_to_end   KAIpanel 2VL        0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       end_to_end   KAIpanel 8VS        0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       end_to_end   llama-native        7.248e-05      5.953e-07        3.050e-06  PASS
+1024x1024x1024       end_to_end   llama-native+setup      7.248e-05      5.953e-07        3.050e-06  PASS
+1024x1024x1024       end_to_end   llama-kleidiai      0.000e+00      0.000e+00        1.274e-05  PASS
+1024x1024x1024       end_to_end   llama-kleidiai+setup      0.000e+00      0.000e+00        1.274e-05  PASS
+2048x2048x2048       end_to_end   SME 4x1             0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       end_to_end   SME 2x2             1.526e-04      7.692e-07        1.675e-05  PASS
+2048x2048x2048       end_to_end   SME 1x4             0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       end_to_end   SME 1x4sym          0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       end_to_end   SME 4x1ZP           1.526e-04      7.692e-07        1.675e-05  PASS
+2048x2048x2048       end_to_end   SME 1x4ZAIO         0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       end_to_end   SME 1x4Acc          0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       end_to_end   SME 1x4AccKc        0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       end_to_end   KAI 2VL             0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       end_to_end   KAI 8VS             0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       end_to_end   Accelerate          0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       kernel_only  SME 4x1             0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       kernel_only  SME 2x2             1.526e-04      7.692e-07        1.675e-05  PASS
+2048x2048x2048       kernel_only  SME 1x4             0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       kernel_only  SME 1x4sym          0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       kernel_only  SME 4x1ZP           1.526e-04      7.692e-07        1.675e-05  PASS
+2048x2048x2048       kernel_only  SME 1x4Acc          0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       kernel_only  SME 1x4AccKc        0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       kernel_only  KAI 2VL             0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       kernel_only  KAI 8VS             0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       end_to_end   KAIpanel 2VL        0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       end_to_end   KAIpanel 8VS        0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       end_to_end   llama-native        1.450e-04      8.400e-07        9.470e-06  PASS
+2048x2048x2048       end_to_end   llama-native+setup      1.450e-04      8.400e-07        9.470e-06  PASS
+2048x2048x2048       end_to_end   llama-kleidiai      0.000e+00      0.000e+00        6.557e-05  PASS
+2048x2048x2048       end_to_end   llama-kleidiai+setup      0.000e+00      0.000e+00        6.557e-05  PASS
+4096x4096x4096       end_to_end   SME 4x1             3.510e-04      1.091e-06        4.956e-05  PASS
+4096x4096x4096       end_to_end   SME 2x2             3.510e-04      1.195e-06        2.551e-05  PASS
+4096x4096x4096       end_to_end   SME 1x4             3.510e-04      1.091e-06        4.956e-05  PASS
+4096x4096x4096       end_to_end   SME 1x4sym          3.510e-04      1.091e-06        4.956e-05  PASS
+4096x4096x4096       end_to_end   SME 4x1ZP           3.510e-04      1.195e-06        2.551e-05  PASS
+4096x4096x4096       end_to_end   SME 1x4ZAIO         0.000e+00      0.000e+00        5.875e-05  PASS
+4096x4096x4096       end_to_end   SME 1x4Acc          0.000e+00      0.000e+00        5.875e-05  PASS
+4096x4096x4096       end_to_end   SME 1x4AccKc        0.000e+00      0.000e+00        5.875e-05  PASS
+4096x4096x4096       end_to_end   KAI 2VL             0.000e+00      0.000e+00        5.875e-05  PASS
+4096x4096x4096       end_to_end   KAI 8VS             0.000e+00      0.000e+00        5.875e-05  PASS
+4096x4096x4096       end_to_end   Accelerate          0.000e+00      0.000e+00        5.875e-05  PASS
+4096x4096x4096       kernel_only  SME 4x1             3.510e-04      1.091e-06        4.956e-05  PASS
+4096x4096x4096       kernel_only  SME 2x2             3.510e-04      1.195e-06        2.551e-05  PASS
+4096x4096x4096       kernel_only  SME 1x4             3.510e-04      1.091e-06        4.956e-05  PASS
+4096x4096x4096       kernel_only  SME 1x4sym          3.510e-04      1.091e-06        4.956e-05  PASS
+4096x4096x4096       kernel_only  SME 4x1ZP           3.510e-04      1.195e-06        2.551e-05  PASS
+4096x4096x4096       kernel_only  SME 1x4Acc          0.000e+00      0.000e+00        5.875e-05  PASS
+4096x4096x4096       kernel_only  SME 1x4AccKc        0.000e+00      0.000e+00        5.875e-05  PASS
+4096x4096x4096       kernel_only  KAI 2VL             0.000e+00      0.000e+00        5.875e-05  PASS
+4096x4096x4096       kernel_only  KAI 8VS             0.000e+00      0.000e+00        5.875e-05  PASS
+4096x4096x4096       end_to_end   KAIpanel 2VL        0.000e+00      0.000e+00        5.875e-05  PASS
+4096x4096x4096       end_to_end   KAIpanel 8VS        0.000e+00      0.000e+00        5.875e-05  PASS
+4096x4096x4096       end_to_end   llama-native        3.586e-04      1.190e-06        2.047e-05  PASS
+4096x4096x4096       end_to_end   llama-native+setup      3.586e-04      1.190e-06        2.047e-05  PASS
+4096x4096x4096       end_to_end   llama-kleidiai      0.000e+00      0.000e+00        5.875e-05  PASS
+4096x4096x4096       end_to_end   llama-kleidiai+setup      0.000e+00      0.000e+00        5.875e-05  PASS
+64x8192x512          end_to_end   SME 4x1             4.349e-04      1.682e-06        4.106e-05  PASS
+64x8192x512          end_to_end   SME 2x2             4.578e-04      1.686e-06        4.641e-05  PASS
+64x8192x512          end_to_end   SME 1x4             4.349e-04      1.682e-06        4.106e-05  PASS
+64x8192x512          end_to_end   SME 1x4sym          4.349e-04      1.682e-06        4.106e-05  PASS
+64x8192x512          end_to_end   SME 4x1ZP           4.578e-04      1.686e-06        4.641e-05  PASS
+64x8192x512          end_to_end   SME 1x4ZAIO         0.000e+00      0.000e+00        1.943e-04  PASS
+64x8192x512          end_to_end   SME 1x4Acc          0.000e+00      0.000e+00        1.943e-04  PASS
+64x8192x512          end_to_end   SME 1x4AccKc        0.000e+00      0.000e+00        1.943e-04  PASS
+64x8192x512          end_to_end   KAI 2VL             0.000e+00      0.000e+00        1.943e-04  PASS
+64x8192x512          end_to_end   KAI 8VS             0.000e+00      0.000e+00        1.943e-04  PASS
+64x8192x512          end_to_end   Accelerate          0.000e+00      0.000e+00        1.943e-04  PASS
+64x8192x512          kernel_only  SME 4x1             4.349e-04      1.682e-06        4.106e-05  PASS
+64x8192x512          kernel_only  SME 2x2             4.578e-04      1.686e-06        4.641e-05  PASS
+64x8192x512          kernel_only  SME 1x4             4.349e-04      1.682e-06        4.106e-05  PASS
+64x8192x512          kernel_only  SME 1x4sym          4.349e-04      1.682e-06        4.106e-05  PASS
+64x8192x512          kernel_only  SME 4x1ZP           4.578e-04      1.686e-06        4.641e-05  PASS
+64x8192x512          kernel_only  SME 1x4Acc          0.000e+00      0.000e+00        1.943e-04  PASS
+64x8192x512          kernel_only  SME 1x4AccKc        0.000e+00      0.000e+00        1.943e-04  PASS
+64x8192x512          kernel_only  KAI 2VL             0.000e+00      0.000e+00        1.943e-04  PASS
+64x8192x512          kernel_only  KAI 8VS             0.000e+00      0.000e+00        1.943e-04  PASS
+64x8192x512          end_to_end   KAIpanel 2VL        4.349e-04      1.682e-06        4.106e-05  PASS
+64x8192x512          end_to_end   KAIpanel 8VS        4.349e-04      1.682e-06        4.106e-05  PASS
+64x8192x512          end_to_end   llama-native        4.425e-04      1.679e-06        3.018e-05  PASS
+64x8192x512          end_to_end   llama-native+setup      4.425e-04      1.679e-06        3.018e-05  PASS
+64x8192x512          end_to_end   llama-kleidiai      0.000e+00      0.000e+00        1.943e-04  PASS
+64x8192x512          end_to_end   llama-kleidiai+setup      0.000e+00      0.000e+00        1.943e-04  PASS
+64x16384x512         end_to_end   SME 4x1             1.038e-03      2.372e-06        6.551e-05  PASS
+64x16384x512         end_to_end   SME 2x2             1.038e-03      2.347e-06        1.054e-04  PASS
+64x16384x512         end_to_end   SME 1x4             1.038e-03      2.372e-06        6.551e-05  PASS
+64x16384x512         end_to_end   SME 1x4sym          1.038e-03      2.372e-06        6.551e-05  PASS
+64x16384x512         end_to_end   SME 4x1ZP           1.038e-03      2.347e-06        1.054e-04  PASS
+64x16384x512         end_to_end   SME 1x4ZAIO         0.000e+00      0.000e+00        1.445e-04  PASS
+64x16384x512         end_to_end   SME 1x4Acc          0.000e+00      0.000e+00        1.445e-04  PASS
+64x16384x512         end_to_end   SME 1x4AccKc        0.000e+00      0.000e+00        1.445e-04  PASS
+64x16384x512         end_to_end   KAI 2VL             0.000e+00      0.000e+00        1.445e-04  PASS
+64x16384x512         end_to_end   KAI 8VS             0.000e+00      0.000e+00        1.445e-04  PASS
+64x16384x512         end_to_end   Accelerate          0.000e+00      0.000e+00        1.445e-04  PASS
+64x16384x512         kernel_only  SME 4x1             1.038e-03      2.372e-06        6.551e-05  PASS
+64x16384x512         kernel_only  SME 2x2             1.038e-03      2.347e-06        1.054e-04  PASS
+64x16384x512         kernel_only  SME 1x4             1.038e-03      2.372e-06        6.551e-05  PASS
+64x16384x512         kernel_only  SME 1x4sym          1.038e-03      2.372e-06        6.551e-05  PASS
+64x16384x512         kernel_only  SME 4x1ZP           1.038e-03      2.347e-06        1.054e-04  PASS
+64x16384x512         kernel_only  SME 1x4Acc          0.000e+00      0.000e+00        1.445e-04  PASS
+64x16384x512         kernel_only  SME 1x4AccKc        0.000e+00      0.000e+00        1.445e-04  PASS
+64x16384x512         kernel_only  KAI 2VL             0.000e+00      0.000e+00        1.445e-04  PASS
+64x16384x512         kernel_only  KAI 8VS             0.000e+00      0.000e+00        1.445e-04  PASS
+64x16384x512         end_to_end   KAIpanel 2VL        1.038e-03      2.372e-06        6.551e-05  PASS
+64x16384x512         end_to_end   KAIpanel 8VS        1.038e-03      2.372e-06        6.551e-05  PASS
+64x16384x512         end_to_end   llama-native        9.766e-04      2.364e-06        6.724e-05  PASS
+64x16384x512         end_to_end   llama-native+setup      9.766e-04      2.364e-06        6.724e-05  PASS
+64x16384x512         end_to_end   llama-kleidiai      0.000e+00      0.000e+00        1.445e-04  PASS
+64x16384x512         end_to_end   llama-kleidiai+setup      0.000e+00      0.000e+00        1.445e-04  PASS
+64x32768x512         end_to_end   SME 4x1             1.831e-03      3.363e-06        1.614e-04  PASS
+64x32768x512         end_to_end   SME 2x2             1.816e-03      3.323e-06        6.619e-05  PASS
+64x32768x512         end_to_end   SME 1x4             1.831e-03      3.363e-06        1.614e-04  PASS
+64x32768x512         end_to_end   SME 1x4sym          1.831e-03      3.363e-06        1.614e-04  PASS
+64x32768x512         end_to_end   SME 4x1ZP           1.816e-03      3.323e-06        6.619e-05  PASS
+64x32768x512         end_to_end   SME 1x4ZAIO         0.000e+00      0.000e+00        6.383e-04  PASS
+64x32768x512         end_to_end   SME 1x4Acc          0.000e+00      0.000e+00        6.383e-04  PASS
+64x32768x512         end_to_end   SME 1x4AccKc        0.000e+00      0.000e+00        6.383e-04  PASS
+64x32768x512         end_to_end   KAI 2VL             0.000e+00      0.000e+00        6.383e-04  PASS
+64x32768x512         end_to_end   KAI 8VS             0.000e+00      0.000e+00        6.383e-04  PASS
+64x32768x512         end_to_end   Accelerate          0.000e+00      0.000e+00        6.383e-04  PASS
+64x32768x512         kernel_only  SME 4x1             1.831e-03      3.363e-06        1.614e-04  PASS
+64x32768x512         kernel_only  SME 2x2             1.816e-03      3.323e-06        6.619e-05  PASS
+64x32768x512         kernel_only  SME 1x4             1.831e-03      3.363e-06        1.614e-04  PASS
+64x32768x512         kernel_only  SME 1x4sym          1.831e-03      3.363e-06        1.614e-04  PASS
+64x32768x512         kernel_only  SME 4x1ZP           1.816e-03      3.323e-06        6.619e-05  PASS
+64x32768x512         kernel_only  SME 1x4Acc          0.000e+00      0.000e+00        6.383e-04  PASS
+64x32768x512         kernel_only  SME 1x4AccKc        0.000e+00      0.000e+00        6.383e-04  PASS
+64x32768x512         kernel_only  KAI 2VL             0.000e+00      0.000e+00        6.383e-04  PASS
+64x32768x512         kernel_only  KAI 8VS             0.000e+00      0.000e+00        6.383e-04  PASS
+64x32768x512         end_to_end   KAIpanel 2VL        1.831e-03      3.363e-06        1.614e-04  PASS
+64x32768x512         end_to_end   KAIpanel 8VS        1.831e-03      3.363e-06        1.614e-04  PASS
+64x32768x512         end_to_end   llama-native        1.755e-03      3.385e-06        1.218e-04  PASS
+64x32768x512         end_to_end   llama-native+setup      1.755e-03      3.385e-06        1.218e-04  PASS
+64x32768x512         end_to_end   llama-kleidiai      0.000e+00      0.000e+00        6.383e-04  PASS
+64x32768x512         end_to_end   llama-kleidiai+setup      0.000e+00      0.000e+00        6.383e-04  PASS
+128x8192x512         end_to_end   SME 4x1             4.349e-04      1.686e-06        5.253e-05  PASS
+128x8192x512         end_to_end   SME 2x2             4.578e-04      1.691e-06        4.641e-05  PASS
+128x8192x512         end_to_end   SME 1x4             4.349e-04      1.686e-06        5.253e-05  PASS
+128x8192x512         end_to_end   SME 1x4sym          4.349e-04      1.686e-06        5.253e-05  PASS
+128x8192x512         end_to_end   SME 4x1ZP           4.578e-04      1.691e-06        4.641e-05  PASS
+128x8192x512         end_to_end   SME 1x4ZAIO         0.000e+00      0.000e+00        1.943e-04  PASS
+128x8192x512         end_to_end   SME 1x4Acc          0.000e+00      0.000e+00        1.943e-04  PASS
+128x8192x512         end_to_end   SME 1x4AccKc        0.000e+00      0.000e+00        1.943e-04  PASS
+128x8192x512         end_to_end   KAI 2VL             0.000e+00      0.000e+00        1.943e-04  PASS
+128x8192x512         end_to_end   KAI 8VS             0.000e+00      0.000e+00        1.943e-04  PASS
+128x8192x512         end_to_end   Accelerate          0.000e+00      0.000e+00        1.943e-04  PASS
+128x8192x512         kernel_only  SME 4x1             4.349e-04      1.686e-06        5.253e-05  PASS
+128x8192x512         kernel_only  SME 2x2             4.578e-04      1.691e-06        4.641e-05  PASS
+128x8192x512         kernel_only  SME 1x4             4.349e-04      1.686e-06        5.253e-05  PASS
+128x8192x512         kernel_only  SME 1x4sym          4.349e-04      1.686e-06        5.253e-05  PASS
+128x8192x512         kernel_only  SME 4x1ZP           4.578e-04      1.691e-06        4.641e-05  PASS
+128x8192x512         kernel_only  SME 1x4Acc          0.000e+00      0.000e+00        1.943e-04  PASS
+128x8192x512         kernel_only  SME 1x4AccKc        0.000e+00      0.000e+00        1.943e-04  PASS
+128x8192x512         kernel_only  KAI 2VL             0.000e+00      0.000e+00        1.943e-04  PASS
+128x8192x512         kernel_only  KAI 8VS             0.000e+00      0.000e+00        1.943e-04  PASS
+128x8192x512         end_to_end   KAIpanel 2VL        4.349e-04      1.686e-06        5.253e-05  PASS
+128x8192x512         end_to_end   KAIpanel 8VS        4.349e-04      1.686e-06        5.253e-05  PASS
+128x8192x512         end_to_end   llama-native        4.425e-04      1.680e-06        3.059e-05  PASS
+128x8192x512         end_to_end   llama-native+setup      4.425e-04      1.680e-06        3.059e-05  PASS
+128x8192x512         end_to_end   llama-kleidiai      0.000e+00      0.000e+00        1.943e-04  PASS
+128x8192x512         end_to_end   llama-kleidiai+setup      0.000e+00      0.000e+00        1.943e-04  PASS
+128x16384x512        end_to_end   SME 4x1             1.038e-03      2.380e-06        7.223e-05  PASS
+128x16384x512        end_to_end   SME 2x2             1.038e-03      2.353e-06        4.074e-05  PASS
+128x16384x512        end_to_end   SME 1x4             1.038e-03      2.380e-06        7.223e-05  PASS
+128x16384x512        end_to_end   SME 1x4sym          1.038e-03      2.380e-06        7.223e-05  PASS
+128x16384x512        end_to_end   SME 4x1ZP           1.038e-03      2.353e-06        4.074e-05  PASS
+128x16384x512        end_to_end   SME 1x4ZAIO         0.000e+00      0.000e+00        2.991e-04  PASS
+128x16384x512        end_to_end   SME 1x4Acc          0.000e+00      0.000e+00        2.991e-04  PASS
+128x16384x512        end_to_end   SME 1x4AccKc        0.000e+00      0.000e+00        2.991e-04  PASS
+128x16384x512        end_to_end   KAI 2VL             0.000e+00      0.000e+00        2.991e-04  PASS
+128x16384x512        end_to_end   KAI 8VS             0.000e+00      0.000e+00        2.991e-04  PASS
+128x16384x512        end_to_end   Accelerate          0.000e+00      0.000e+00        2.991e-04  PASS
+128x16384x512        kernel_only  SME 4x1             1.038e-03      2.380e-06        7.223e-05  PASS
+128x16384x512        kernel_only  SME 2x2             1.038e-03      2.353e-06        4.074e-05  PASS
+128x16384x512        kernel_only  SME 1x4             1.038e-03      2.380e-06        7.223e-05  PASS
+128x16384x512        kernel_only  SME 1x4sym          1.038e-03      2.380e-06        7.223e-05  PASS
+128x16384x512        kernel_only  SME 4x1ZP           1.038e-03      2.353e-06        4.074e-05  PASS
+128x16384x512        kernel_only  SME 1x4Acc          0.000e+00      0.000e+00        2.991e-04  PASS
+128x16384x512        kernel_only  SME 1x4AccKc        0.000e+00      0.000e+00        2.991e-04  PASS
+128x16384x512        kernel_only  KAI 2VL             0.000e+00      0.000e+00        2.991e-04  PASS
+128x16384x512        kernel_only  KAI 8VS             0.000e+00      0.000e+00        2.991e-04  PASS
+128x16384x512        end_to_end   KAIpanel 2VL        1.038e-03      2.380e-06        7.223e-05  PASS
+128x16384x512        end_to_end   KAIpanel 8VS        1.038e-03      2.380e-06        7.223e-05  PASS
+128x16384x512        end_to_end   llama-native        9.766e-04      2.372e-06        7.791e-05  PASS
+128x16384x512        end_to_end   llama-native+setup      9.766e-04      2.372e-06        7.791e-05  PASS
+128x16384x512        end_to_end   llama-kleidiai      0.000e+00      0.000e+00        2.991e-04  PASS
+128x16384x512        end_to_end   llama-kleidiai+setup      0.000e+00      0.000e+00        2.991e-04  PASS
+128x32768x512        end_to_end   SME 4x1             1.831e-03      3.344e-06        1.539e-04  PASS
+128x32768x512        end_to_end   SME 2x2             1.816e-03      3.307e-06        8.695e-05  PASS
+128x32768x512        end_to_end   SME 1x4             1.831e-03      3.344e-06        1.539e-04  PASS
+128x32768x512        end_to_end   SME 1x4sym          1.831e-03      3.344e-06        1.539e-04  PASS
+128x32768x512        end_to_end   SME 4x1ZP           1.816e-03      3.307e-06        8.695e-05  PASS
+128x32768x512        end_to_end   SME 1x4ZAIO         0.000e+00      0.000e+00        8.057e-04  PASS
+128x32768x512        end_to_end   SME 1x4Acc          0.000e+00      0.000e+00        8.057e-04  PASS
+128x32768x512        end_to_end   SME 1x4AccKc        0.000e+00      0.000e+00        8.057e-04  PASS
+128x32768x512        end_to_end   KAI 2VL             0.000e+00      0.000e+00        8.057e-04  PASS
+128x32768x512        end_to_end   KAI 8VS             0.000e+00      0.000e+00        8.057e-04  PASS
+128x32768x512        end_to_end   Accelerate          0.000e+00      0.000e+00        8.057e-04  PASS
+128x32768x512        kernel_only  SME 4x1             1.831e-03      3.344e-06        1.539e-04  PASS
+128x32768x512        kernel_only  SME 2x2             1.816e-03      3.307e-06        8.695e-05  PASS
+128x32768x512        kernel_only  SME 1x4             1.831e-03      3.344e-06        1.539e-04  PASS
+128x32768x512        kernel_only  SME 1x4sym          1.831e-03      3.344e-06        1.539e-04  PASS
+128x32768x512        kernel_only  SME 4x1ZP           1.816e-03      3.307e-06        8.695e-05  PASS
+128x32768x512        kernel_only  SME 1x4Acc          0.000e+00      0.000e+00        8.057e-04  PASS
+128x32768x512        kernel_only  SME 1x4AccKc        0.000e+00      0.000e+00        8.057e-04  PASS
+128x32768x512        kernel_only  KAI 2VL             0.000e+00      0.000e+00        8.057e-04  PASS
+128x32768x512        kernel_only  KAI 8VS             0.000e+00      0.000e+00        8.057e-04  PASS
+128x32768x512        end_to_end   KAIpanel 2VL        1.831e-03      3.344e-06        1.539e-04  PASS
+128x32768x512        end_to_end   KAIpanel 8VS        1.831e-03      3.344e-06        1.539e-04  PASS
+128x32768x512        end_to_end   llama-native        1.755e-03      3.370e-06        1.154e-04  PASS
+128x32768x512        end_to_end   llama-native+setup      1.755e-03      3.370e-06        1.154e-04  PASS
+128x32768x512        end_to_end   llama-kleidiai      0.000e+00      0.000e+00        8.057e-04  PASS
+128x32768x512        end_to_end   llama-kleidiai+setup      0.000e+00      0.000e+00        8.057e-04  PASS
+
+=====================================================================
+  Table A - Hot Microkernel (inner-kernel quality)
+=====================================================================
+
+  Packed panels for ONE output tile, resident; timed region is the
+  micro-kernel only. MaxMulSK enters streaming mode once per batch
+  (as its driver does); KleidiAI's entry point does smstart/smstop per
+  call. The [iso] rows re-measure MaxMulSK with per-call streaming so
+  that difference is visible rather than assumed away.
+
+    Kc    MaxMulSK GF    KleidiAI GF    ratio  MaxMul geometry  KAI geometry    
+----------------------------------------------------------------------------------
+   128         2007.1         1376.5    1.458  SME 1x4AccKc [am KAI 2VL 32x32 ti
+   256         2011.2         1616.2    1.244  SME 1x4AccKc [am KAI 2VL 32x32 ti
+   512         2007.0         1801.0    1.114  SME 1x4AccKc [am KAI 2VL 32x32 ti
+  1024         2007.2         1899.0    1.057  SME 1x4AccKc [am KAI 2VL 32x32 ti
+  2048         2007.8         1948.3    1.031  SME 1x4AccKc [am KAI 2VL 32x32 ti
+
+  Per-variant detail
+
+    Kc implementation     geometry               reps/sample    ns/invoke        GFLOP/s    correct
+--------------------------------------------------------------------------------------------------
+   128 SME 4x1            64x16 tile                   2918        490.6          534.3       PASS
+   128 SME 4x1 [iso]      64x16, smstart/call          2918        489.6          535.5       PASS
+   128 SME 2x2            32x32 tile                   3793        488.9          536.2       PASS
+   128 SME 2x2 [iso]      32x32, smstart/call          3793        489.3          535.8       PASS
+   128 SME 1x4            16x64 tile                   3845        488.3          536.9       PASS
+   128 SME 1x4 [iso]      16x64, smstart/call          3845        486.6          538.7       PASS
+   128 SME 1x4sym         16x64 tile                   3589        486.0          539.4       PASS
+   128 SME 1x4sym [iso]   16x64, smstart/call          3589        486.2          539.2       PASS
+   128 SME 4x1ZP          64x16 tile                   3573        485.9          539.5       PASS
+   128 SME 4x1ZP [iso]    64x16, smstart/call          3573        488.8          536.3       PASS
+   128 SME 1x4Acc         16x64 tile                   8778        182.2         1438.7       PASS
+   128 SME 1x4Acc [iso]   16x64, smstart/call          8778        182.5         1436.0       PASS
+   128 SME 1x4Acc [amort] 16x64, zero+store amort       8778        130.6         2007.1       PASS
+   128 SME 1x4AccKc       16x64 tile                   8880        182.2         1438.8       PASS
+   128 SME 1x4AccKc [iso] 16x64, smstart/call          8880        182.5         1436.1       PASS
+   128 SME 1x4AccKc [amort] 16x64, zero+store amort       8880        130.6         2007.1       PASS
+   128 KAI 2VL            32x32 tile                   8237        190.4         1376.5       PASS
+   128 KAI 8VS            16x16 tile                  15836        128.1          511.7       PASS
+   256 SME 4x1            64x16 tile                   2628        619.7          846.1       PASS
+   256 SME 4x1 [iso]      64x16, smstart/call          2628        620.0          845.6       PASS
+   256 SME 2x2            32x32 tile                   3079        619.1          846.9       PASS
+   256 SME 2x2 [iso]      32x32, smstart/call          3079        619.3          846.5       PASS
+   256 SME 1x4            16x64 tile                   2995        619.2          846.7       PASS
+   256 SME 1x4 [iso]      16x64, smstart/call          2995        619.4          846.4       PASS
+   256 SME 1x4sym         16x64 tile                   2910        619.3          846.6       PASS
+   256 SME 1x4sym [iso]   16x64, smstart/call          2910        620.5          844.9       PASS
+   256 SME 4x1ZP          64x16 tile                   2921        619.3          846.6       PASS
+   256 SME 4x1ZP [iso]    64x16, smstart/call          2921        619.5          846.3       PASS
+   256 SME 1x4Acc         16x64 tile                   5216        312.9         1675.8       PASS
+   256 SME 1x4Acc [iso]   16x64, smstart/call          5216        313.2         1674.0       PASS
+   256 SME 1x4Acc [amort] 16x64, zero+store amort       5216        261.5         2004.7       PASS
+   256 SME 1x4AccKc       16x64 tile                   5216        312.9         1675.8       PASS
+   256 SME 1x4AccKc [iso] 16x64, smstart/call          5216        313.2         1674.1       PASS
+   256 SME 1x4AccKc [amort] 16x64, zero+store amort       5216        260.7         2011.2       PASS
+   256 KAI 2VL            32x32 tile                   5070        324.4         1616.2       PASS
+   256 KAI 8VS            16x16 tile                  11378        138.0          949.5       PASS
+   512 SME 4x1            64x16 tile                   2116        878.6         1193.5       PASS
+   512 SME 4x1 [iso]      64x16, smstart/call          2116        878.8         1193.2       PASS
+   512 SME 2x2            32x32 tile                   2200        878.4         1193.7       PASS
+   512 SME 2x2 [iso]      32x32, smstart/call          2200        878.7         1193.3       PASS
+   512 SME 1x4            16x64 tile                   2122        893.1         1174.1       PASS
+   512 SME 1x4 [iso]      16x64, smstart/call          2122        894.6         1172.1       PASS
+   512 SME 1x4sym         16x64 tile                   2178        878.7         1193.4       PASS
+   512 SME 1x4sym [iso]   16x64, smstart/call          2178        879.4         1192.4       PASS
+   512 SME 4x1ZP          64x16 tile                   2146        878.5         1193.6       PASS
+   512 SME 4x1ZP [iso]    64x16, smstart/call          2146        878.7         1193.3       PASS
+   512 SME 1x4Acc         16x64 tile                   3307        574.5         1825.2       PASS
+   512 SME 1x4Acc [iso]   16x64, smstart/call          3307        574.2         1826.2       PASS
+   512 SME 1x4Acc [amort] 16x64, zero+store amort       3307        522.5         2007.0       PASS
+   512 SME 1x4AccKc       16x64 tile                   3343        574.2         1826.0       PASS
+   512 SME 1x4AccKc [iso] 16x64, smstart/call          3343        574.2         1826.1       PASS
+   512 SME 1x4AccKc [amort] 16x64, zero+store amort       3343        522.5         2007.0       PASS
+   512 KAI 2VL            32x32 tile                   3155        582.2         1801.0       PASS
+   512 KAI 8VS            16x16 tile                   9541        170.4         1538.8       PASS
+  1024 SME 4x1            64x16 tile                   1407       1400.8         1497.1       PASS
+  1024 SME 4x1 [iso]      64x16, smstart/call          1407       1401.3         1496.6       PASS
+  1024 SME 2x2            32x32 tile                   1392       1401.1         1496.8       PASS
+  1024 SME 2x2 [iso]      32x32, smstart/call          1392       1401.9         1496.0       PASS
+  1024 SME 1x4            16x64 tile                   1338       1451.8         1444.5       PASS
+  1024 SME 1x4 [iso]      16x64, smstart/call          1338       1452.5         1443.8       PASS
+  1024 SME 1x4sym         16x64 tile                   1399       1400.6         1497.4       PASS
+  1024 SME 1x4sym [iso]   16x64, smstart/call          1399       1401.1         1496.8       PASS
+  1024 SME 4x1ZP          64x16 tile                   1374       1401.8         1496.0       PASS
+  1024 SME 4x1ZP [iso]    64x16, smstart/call          1374       1401.7         1496.2       PASS
+  1024 SME 1x4Acc         16x64 tile                   1712       1096.2         1913.2       PASS
+  1024 SME 1x4Acc [iso]   16x64, smstart/call          1712       1096.5         1912.7       PASS
+  1024 SME 1x4Acc [amort] 16x64, zero+store amort       1712       1045.4         2006.0       PASS
+  1024 SME 1x4AccKc       16x64 tile                   1728       1096.1         1913.3       PASS
+  1024 SME 1x4AccKc [iso] 16x64, smstart/call          1728       1097.4         1911.1       PASS
+  1024 SME 1x4AccKc [amort] 16x64, zero+store amort       1728       1044.8         2007.2       PASS
+  1024 KAI 2VL            32x32 tile                   1787       1104.3         1899.0       PASS
+  1024 KAI 8VS            16x16 tile                   5764        300.2         1746.3       PASS
+  2048 SME 4x1            64x16 tile                    786       2446.6         1714.4       PASS
+  2048 SME 4x1 [iso]      64x16, smstart/call           786       2445.3         1715.3       PASS
+  2048 SME 2x2            32x32 tile                    811       2446.6         1714.3       PASS
+  2048 SME 2x2 [iso]      32x32, smstart/call           811       2445.1         1715.4       PASS
+  2048 SME 1x4            16x64 tile                    780       2567.4         1633.7       PASS
+  2048 SME 1x4 [iso]      16x64, smstart/call           780       2568.3         1633.1       PASS
+  2048 SME 1x4sym         16x64 tile                    818       2446.7         1714.3       PASS
+  2048 SME 1x4sym [iso]   16x64, smstart/call           818       2445.6         1715.0       PASS
+  2048 SME 4x1ZP          64x16 tile                    787       2446.8         1714.2       PASS
+  2048 SME 4x1ZP [iso]    64x16, smstart/call           787       2445.3         1715.3       PASS
+  2048 SME 1x4Acc         16x64 tile                    883       2140.9         1959.2       PASS
+  2048 SME 1x4Acc [iso]   16x64, smstart/call           883       2141.0         1959.1       PASS
+  2048 SME 1x4Acc [amort] 16x64, zero+store amort        883       2089.4         2007.4       PASS
+  2048 SME 1x4AccKc       16x64 tile                    928       2140.8         1959.2       PASS
+  2048 SME 1x4AccKc [iso] 16x64, smstart/call           928       2142.2         1957.9       PASS
+  2048 SME 1x4AccKc [amort] 16x64, zero+store amort        928       2089.0         2007.8       PASS
+  2048 KAI 2VL            32x32 tile                    923       2152.8         1948.3       PASS
+  2048 KAI 8VS            16x16 tile                   3138        567.3         1848.5       PASS
+
+=====================================================================
+  Table B - Controlled End-to-End Flow (dataflow / packing quality)
+=====================================================================
+
+  Same micro-kernels as Table A, now inside three different whole-GEMM
+  organizations. 'KAI panel' is KleidiAI's own kernel and packing
+  routines driven by a MaxMulSK-style panel-blocked caller.
+
+M x K x N                MaxMulSK     KAI orig    KAI panel     MM/orig    MM/panel
+------------------------------------------------------------------------------------
+256x256x256                1400.6       1278.3       1274.2       1.096       1.099
+512x512x512                1660.0       1710.2       1706.6       0.971       0.973
+1024x1024x1024             1772.8       1601.3       1772.3       1.107       1.000
+2048x2048x2048             1495.5       1635.1       1574.7       0.915       0.950
+4096x4096x4096             1321.7       1635.8       1477.8       0.808       0.894
+64x8192x512                 805.7        523.8        871.5       1.538       0.924
+64x16384x512                811.2        505.6        852.0       1.604       0.952
+64x32768x512                725.2        439.3        850.4       1.651       0.853
+128x8192x512                936.9        746.9       1086.8       1.254       0.862
+128x16384x512              1013.5        667.8       1066.1       1.518       0.951
+128x32768x512               902.7        553.0       1013.2       1.632       0.891
+
+  Panel-blocked configuration chosen, and its stage breakdown.
+  Percentages are of the instrumented run, whose total is slightly
+  above the headline median because of the clock calls.
+
+M x K x N            kernel       config                   packA %   packB % compute %   accum %
+------------------------------------------------------------------------------------------------
+256x256x256          2VL          Mc=256 Kc=2048 Nc=512      10.1%      6.8%     82.7%      0.0%
+256x256x256          8VS          Mc=256 Kc=256 Nc=256       11.7%      8.4%     79.5%      0.0%
+512x512x512          2VL          Mc=256 Kc=2048 Nc=512       6.2%      3.8%     89.9%      0.0%
+512x512x512          8VS          Mc=512 Kc=2048 Nc=512       7.5%      5.6%     86.8%      0.0%
+1024x1024x1024       2VL          Mc=64 Kc=2048 Nc=512        6.8%      1.8%     91.3%      0.0%
+1024x1024x1024       8VS          Mc=64 Kc=2048 Nc=1024       4.4%      3.2%     92.3%      0.0%
+2048x2048x2048       2VL          Mc=256 Kc=2048 Nc=512      15.1%      3.2%     81.6%      0.0%
+2048x2048x2048       8VS          Mc=64 Kc=2048 Nc=512       23.2%      3.8%     73.0%      0.0%
+4096x4096x4096       2VL          Mc=256 Kc=4096 Nc=512      15.9%      1.7%     82.5%      0.0%
+4096x4096x4096       8VS          Mc=64 Kc=4096 Nc=512       22.1%      1.8%     76.1%      0.0%
+64x8192x512          2VL          Mc=256 Kc=2048 Nc=512      14.4%     38.7%     45.0%      1.8%
+64x8192x512          8VS          Mc=256 Kc=2048 Nc=512      10.0%     47.7%     40.6%      1.6%
+64x16384x512         2VL          Mc=64 Kc=2048 Nc=512       14.7%     39.0%     44.1%      2.1%
+64x16384x512         8VS          Mc=256 Kc=2048 Nc=512      10.5%     48.1%     39.7%      1.7%
+64x32768x512         2VL          Mc=64 Kc=2048 Nc=512       14.3%     39.3%     44.5%      1.9%
+64x32768x512         8VS          Mc=64 Kc=2048 Nc=512       10.4%     48.4%     39.5%      1.7%
+128x8192x512         2VL          Mc=256 Kc=2048 Nc=512      16.9%     24.3%     56.3%      2.5%
+128x8192x512         8VS          Mc=256 Kc=2048 Nc=512      14.3%     30.8%     52.8%      2.0%
+128x16384x512        2VL          Mc=256 Kc=2048 Nc=512      17.8%     24.3%     55.7%      2.1%
+128x16384x512        8VS          Mc=128 Kc=2048 Nc=512      14.6%     31.7%     51.7%      2.0%
+128x32768x512        2VL          Mc=256 Kc=2048 Nc=512      18.1%     24.3%     55.2%      2.3%
+128x32768x512        8VS          Mc=128 Kc=2048 Nc=512      14.6%     31.7%     51.5%      2.2%
+
+=====================================================================
+  Table C - Runtime-Style CPU Comparison (vs a real inference runtime)
+=====================================================================
+
+M x K x N            implementation     median ms     GFLOP/s  vs MaxMul    correct
+------------------------------------------------------------------------------------
+256x256x256          MaxMulSK               0.024      1400.6      1.000       PASS
+256x256x256          KleidiAI direct        0.026      1278.3      0.913       PASS
+256x256x256          KleidiAI panel         0.026      1274.2      0.910       PASS
+256x256x256          llama-native-f32       0.800        41.9      0.030       PASS
+256x256x256          llama-kleidiai         0.029      1139.1      0.813       PASS
+
+512x512x512          MaxMulSK               0.162      1660.0      1.000       PASS
+512x512x512          KleidiAI direct        0.157      1710.2      1.030       PASS
+512x512x512          KleidiAI panel         0.157      1706.6      1.028       PASS
+512x512x512          llama-native-f32       6.119        43.9      0.026       PASS
+512x512x512          llama-kleidiai         0.161      1663.4      1.002       PASS
+
+1024x1024x1024       MaxMulSK               1.211      1772.8      1.000       PASS
+1024x1024x1024       KleidiAI direct        1.341      1601.3      0.903       PASS
+1024x1024x1024       KleidiAI panel         1.212      1772.3      1.000       PASS
+1024x1024x1024       llama-native-f32      50.523        42.5      0.024       PASS
+1024x1024x1024       llama-kleidiai         1.177      1824.2      1.029       PASS
+
+2048x2048x2048       MaxMulSK              11.488      1495.5      1.000       PASS
+2048x2048x2048       KleidiAI direct       10.507      1635.1      1.093       PASS
+2048x2048x2048       KleidiAI panel        10.910      1574.7      1.053       PASS
+2048x2048x2048       llama-native-f32     469.784        36.6      0.024       PASS
+2048x2048x2048       llama-kleidiai        16.895      1016.9      0.680       PASS
+
+4096x4096x4096       MaxMulSK             103.985      1321.7      1.000       PASS
+4096x4096x4096       KleidiAI direct       84.019      1635.8      1.238       PASS
+4096x4096x4096       KleidiAI panel        93.002      1477.8      1.118       PASS
+4096x4096x4096       llama-native-f32    3858.704        35.6      0.027       PASS
+4096x4096x4096       llama-kleidiai       152.482       901.3      0.682       PASS
+
+64x8192x512          MaxMulSK               0.666       805.7      1.000       PASS
+64x8192x512          KleidiAI direct        1.025       523.8      0.650       PASS
+64x8192x512          KleidiAI panel         0.616       871.5      1.082       PASS
+64x8192x512          llama-native-f32      15.366        34.9      0.043       PASS
+64x8192x512          llama-kleidiai         1.312       409.2      0.508       PASS
+
+64x16384x512         MaxMulSK               1.324       811.2      1.000       PASS
+64x16384x512         KleidiAI direct        2.124       505.6      0.623       PASS
+64x16384x512         KleidiAI panel         1.260       852.0      1.050       PASS
+64x16384x512         llama-native-f32      34.296        31.3      0.039       PASS
+64x16384x512         llama-kleidiai         2.720       394.7      0.487       PASS
+
+64x32768x512         MaxMulSK               2.961       725.2      1.000       PASS
+64x32768x512         KleidiAI direct        4.888       439.3      0.606       PASS
+64x32768x512         KleidiAI panel         2.525       850.4      1.173       PASS
+64x32768x512         llama-native-f32      72.849        29.5      0.041       PASS
+64x32768x512         llama-kleidiai         6.295       341.1      0.470       PASS
+
+128x8192x512         MaxMulSK               1.146       936.9      1.000       PASS
+128x8192x512         KleidiAI direct        1.438       746.9      0.797       PASS
+128x8192x512         KleidiAI panel         0.988      1086.8      1.160       PASS
+128x8192x512         llama-native-f32      30.452        35.3      0.038       PASS
+128x8192x512         llama-kleidiai         1.608       667.8      0.713       PASS
+
+128x16384x512        MaxMulSK               2.119      1013.5      1.000       PASS
+128x16384x512        KleidiAI direct        3.216       667.8      0.659       PASS
+128x16384x512        KleidiAI panel         2.014      1066.1      1.052       PASS
+128x16384x512        llama-native-f32      68.083        31.5      0.031       PASS
+128x16384x512        llama-kleidiai         3.622       592.9      0.585       PASS
+
+128x32768x512        MaxMulSK               4.758       902.7      1.000       PASS
+128x32768x512        KleidiAI direct        7.766       553.0      0.613       PASS
+128x32768x512        KleidiAI panel         4.239      1013.2      1.122       PASS
+128x32768x512        llama-native-f32     148.228        29.0      0.032       PASS
+128x32768x512        llama-kleidiai         9.091       472.5      0.523       PASS
+
+  ggml note: the one-off B transpose into ggml's [K, N] weight layout
+  is NOT in the timed region (llama.cpp stores weights that way).
+  Measured transpose cost, for reference:
+
+M x K x N              transpose ms
+------------------------------------
+256x256x256                   0.121
+512x512x512                   0.557
+1024x1024x1024                3.181
+2048x2048x2048               15.053
+4096x4096x4096               80.596
+64x8192x512                  21.357
+64x16384x512                 40.963
+64x32768x512                 68.932
+128x8192x512                 21.490
+128x16384x512                41.207
+128x32768x512                69.736
+
+=====================================================================
+  Table D - Same KleidiAI primitive, two callers
+=====================================================================
+
+  Both columns execute the identical micro-kernel,
+  kai_run_matmul_clamp_f32_f32p2vlx1_f32p2vlx1biasf32_sme2_mopa
+  (m_step=n_step=mr=nr=32, kr=sr=1). The difference is entirely the
+  surrounding orchestration.
+
+  Two structural differences to keep in mind when reading the ratio:
+   1. llama.cpp maps ggml's src0 to KleidiAI's RHS, so the kernel sees
+      M and N swapped relative to the direct rows. On the skinny shapes
+      (M=64, N=512) that is a materially different problem for it.
+   2. llama.cpp pre-packs src0 once into the CPU_KLEIDIAI buffer (a
+      model-load cost, excluded here and reported separately); the
+      direct end-to-end rows pack both operands inside the timed call.
+      So this is not a like-for-like efficiency ratio - it is a
+      comparison of two whole flows around one primitive.
+
+M x K x N               KAI direct     KAI panel     llama+KAI  llama/best    wt pack ms
+--------------------------------------------------------------------------------------------
+256x256x256                 1278.3        1274.2        1139.1       0.891         0.024
+512x512x512                 1710.2        1706.6        1663.4       0.973         0.093
+1024x1024x1024              1601.3        1772.3        1824.2       1.029         0.394
+2048x2048x2048              1635.1        1574.7        1016.9       0.622         1.357
+4096x4096x4096              1635.8        1477.8         901.3       0.551         5.836
+64x8192x512                  523.8         871.5         409.2       0.470         0.220
+64x16384x512                 505.6         852.0         394.7       0.463         0.439
+64x32768x512                 439.3         850.4         341.1       0.401         0.920
+128x8192x512                 746.9        1086.8         667.8       0.614         0.451
+128x16384x512                667.8        1066.1         592.9       0.556         0.982
+128x32768x512                553.0        1013.2         472.5       0.466         1.823
+
+  llama.cpp KleidiAI vs its own native path (the acceleration ggml
+  actually gains by enabling GGML_CPU_KLEIDIAI):
+
+M x K x N                 native GF    KleidiAI GF    speedup
+--------------------------------------------------------------
+256x256x256                    41.9         1139.1      27.15x
+512x512x512                    43.9         1663.4      37.92x
+1024x1024x1024                 42.5         1824.2      42.92x
+2048x2048x2048                 36.6         1016.9      27.81x
+4096x4096x4096                 35.6          901.3      25.31x
+64x8192x512                    34.9          409.2      11.71x
+64x16384x512                   31.3          394.7      12.61x
+64x32768x512                   29.5          341.1      11.57x
+128x8192x512                   35.3          667.8      18.94x
+128x16384x512                  31.5          592.9      18.80x
+128x32768x512                  29.0          472.5      16.31x
+
+=====================================================================
+  Packing analysis
+=====================================================================
+
+  Per-implementation packing + allocation cost, derived as
+  (end_to_end median) - (kernel_only median). Both modes compute the
+  same C; the difference is packing, the packed-buffer allocation, and
+  for MaxMulSK the fact that end_to_end reads packed panels from a small
+  hot buffer while kernel_only streams them from a large cold one.
+
+M x K x N            implementation       e2e ms    kernel ms     delta ms     pack %
+--------------------------------------------------------------------------------------
+256x256x256          SME 4x1               0.052        0.045        0.008      14.4%
+256x256x256          SME 2x2               0.050        0.045        0.004       8.8%
+256x256x256          SME 1x4               0.052        0.045        0.007      13.4%
+256x256x256          SME 1x4sym            0.052        0.045        0.007      13.5%
+256x256x256          SME 4x1ZP             0.050        0.045        0.005       9.4%
+256x256x256          SME 1x4Acc            0.024        0.020        0.004      16.9%
+256x256x256          SME 1x4AccKc          0.024        0.020        0.004      17.0%
+256x256x256          KAI 2VL               0.028        0.019        0.009      31.3%
+256x256x256          KAI 8VS               0.026        0.017        0.009      35.1%
+512x512x512          SME 4x1               0.261        0.232        0.029      11.0%
+512x512x512          SME 2x2               0.248        0.232        0.016       6.5%
+512x512x512          SME 1x4               0.263        0.235        0.027      10.4%
+512x512x512          SME 1x4sym            0.259        0.232        0.027      10.4%
+512x512x512          SME 4x1ZP             0.249        0.232        0.016       6.6%
+512x512x512          SME 1x4Acc            0.162        0.146        0.015       9.5%
+512x512x512          SME 1x4AccKc          0.162        0.146        0.015       9.5%
+512x512x512          KAI 2VL               0.164        0.144        0.020      12.0%
+512x512x512          KAI 8VS               0.157        0.135        0.022      13.8%
+1024x1024x1024       SME 4x1               1.730        1.472        0.258      14.9%
+1024x1024x1024       SME 2x2               1.635        1.473        0.162       9.9%
+1024x1024x1024       SME 1x4               1.752        1.518        0.234      13.3%
+1024x1024x1024       SME 1x4sym            1.739        1.464        0.274      15.8%
+1024x1024x1024       SME 4x1ZP             1.636        1.478        0.158       9.7%
+1024x1024x1024       SME 1x4Acc            1.211        1.125        0.087       7.2%
+1024x1024x1024       SME 1x4AccKc          1.235        1.125        0.110       8.9%
+1024x1024x1024       KAI 2VL               1.341        1.114        0.227      16.9%
+1024x1024x1024       KAI 8VS               1.341        1.107        0.234      17.5%
+2048x2048x2048       SME 4x1              13.514       11.280        2.235      16.5%
+2048x2048x2048       SME 2x2              15.726       13.359        2.367      15.1%
+2048x2048x2048       SME 1x4              15.554       12.552        3.002      19.3%
+2048x2048x2048       SME 1x4sym           13.898       11.436        2.462      17.7%
+2048x2048x2048       SME 4x1ZP            15.562       13.220        2.343      15.1%
+2048x2048x2048       SME 1x4Acc           12.067        9.467        2.601      21.6%
+2048x2048x2048       SME 1x4AccKc         11.488        9.458        2.030      17.7%
+2048x2048x2048       KAI 2VL              10.507        9.247        1.260      12.0%
+2048x2048x2048       KAI 8VS              10.946        9.378        1.568      14.3%
+4096x4096x4096       SME 4x1             111.078       91.128       19.950      18.0%
+4096x4096x4096       SME 2x2             127.423      108.161       19.263      15.1%
+4096x4096x4096       SME 1x4             107.891       96.925       10.966      10.2%
+4096x4096x4096       SME 1x4sym          103.985       93.629       10.357      10.0%
+4096x4096x4096       SME 4x1ZP           127.921      106.948       20.972      16.4%
+4096x4096x4096       SME 1x4Acc          117.365      127.416      -10.052      -8.6%
+4096x4096x4096       SME 1x4AccKc        115.352      137.498      -22.147     -19.2%
+4096x4096x4096       KAI 2VL              84.019       78.600        5.419       6.4%
+4096x4096x4096       KAI 8VS              86.012       78.979        7.033       8.2%
+64x8192x512          SME 4x1               0.718        0.464        0.254      35.4%
+64x8192x512          SME 2x2               0.682        0.556        0.126      18.5%
+64x8192x512          SME 1x4               0.679        0.510        0.169      24.9%
+64x8192x512          SME 1x4sym            0.666        0.471        0.196      29.4%
+64x8192x512          SME 4x1ZP             0.712        0.508        0.204      28.7%
+64x8192x512          SME 1x4Acc            0.718        0.390        0.327      45.6%
+64x8192x512          SME 1x4AccKc          0.677        0.397        0.280      41.3%
+64x8192x512          KAI 2VL               1.025        0.377        0.648      63.2%
+64x8192x512          KAI 8VS               1.069        0.400        0.669      62.6%
+64x16384x512         SME 4x1               1.520        1.037        0.483      31.8%
+64x16384x512         SME 2x2               1.493        1.198        0.295      19.8%
+64x16384x512         SME 1x4               1.533        1.109        0.424      27.7%
+64x16384x512         SME 1x4sym            1.496        1.014        0.482      32.2%
+64x16384x512         SME 4x1ZP             1.487        1.108        0.379      25.5%
+64x16384x512         SME 1x4Acc            1.324        0.960        0.364      27.5%
+64x16384x512         SME 1x4AccKc          1.356        0.966        0.390      28.8%
+64x16384x512         KAI 2VL               2.124        0.816        1.308      61.6%
+64x16384x512         KAI 8VS               2.203        0.851        1.352      61.4%
+64x32768x512         SME 4x1               3.028        2.073        0.955      31.5%
+64x32768x512         SME 2x2               2.973        2.377        0.597      20.1%
+64x32768x512         SME 1x4               3.072        2.227        0.845      27.5%
+64x32768x512         SME 1x4sym            2.999        2.030        0.969      32.3%
+64x32768x512         SME 4x1ZP             2.961        2.216        0.745      25.2%
+64x32768x512         SME 1x4Acc            3.438        2.556        0.883      25.7%
+64x32768x512         SME 1x4AccKc          3.327        2.577        0.750      22.5%
+64x32768x512         KAI 2VL               4.888        2.291        2.597      53.1%
+64x32768x512         KAI 8VS               4.937        2.282        2.655      53.8%
+128x8192x512         SME 4x1               1.210        0.835        0.375      31.0%
+128x8192x512         SME 2x2               1.146        0.955        0.191      16.7%
+128x8192x512         SME 1x4               1.187        0.900        0.286      24.1%
+128x8192x512         SME 1x4sym            1.153        0.833        0.320      27.7%
+128x8192x512         SME 4x1ZP             1.161        1.050        0.112       9.6%
+128x8192x512         SME 1x4Acc            1.211        0.688        0.524      43.2%
+128x8192x512         SME 1x4AccKc          1.278        0.686        0.592      46.3%
+128x8192x512         KAI 2VL               1.438        0.675        0.762      53.0%
+128x8192x512         KAI 8VS               1.490        0.680        0.810      54.4%
+128x16384x512        SME 4x1               2.448        1.705        0.743      30.3%
+128x16384x512        SME 2x2               2.383        1.955        0.427      17.9%
+128x16384x512        SME 1x4               2.476        1.863        0.613      24.8%
+128x16384x512        SME 1x4sym            2.404        1.683        0.720      30.0%
+128x16384x512        SME 4x1ZP             2.383        2.174        0.209       8.8%
+128x16384x512        SME 1x4Acc            2.119        1.945        0.174       8.2%
+128x16384x512        SME 1x4AccKc          2.134        1.972        0.162       7.6%
+128x16384x512        KAI 2VL               3.229        1.708        1.522      47.1%
+128x16384x512        KAI 8VS               3.216        1.628        1.587      49.4%
+128x32768x512        SME 4x1               4.924        3.414        1.509      30.7%
+128x32768x512        SME 2x2               4.766        3.918        0.848      17.8%
+128x32768x512        SME 1x4               4.955        3.771        1.184      23.9%
+128x32768x512        SME 1x4sym            4.825        3.428        1.398      29.0%
+128x32768x512        SME 4x1ZP             4.758        4.436        0.322       6.8%
+128x32768x512        SME 1x4Acc            5.923        5.068        0.856      14.4%
+128x32768x512        SME 1x4AccKc          5.978        4.493        1.486      24.8%
+128x32768x512        KAI 2VL               7.766        4.999        2.767      35.6%
+128x32768x512        KAI 8VS               7.880        5.017        2.863      36.3%
+
+  Cost of the memset that MaxMulSK's C += A*B semantics require.
+  Charged to the accumulating kernels only. SME 1x4Acc and
+  SME 1x4AccKc overwrite C (their ZA->C store does not read C
+  back), need no memset, and are not charged one:
+
+M x K x N               memset ms   share of e2e
+------------------------------------------------
+256x256x256                0.0020          8.52%
+512x512x512                0.0073          4.54%
+1024x1024x1024             0.0332          2.74%
+2048x2048x2048             0.1614          1.41%
+4096x4096x4096             0.5745          0.55%
+64x8192x512                0.0009          0.13%
+64x16384x512               0.0009          0.07%
+64x32768x512               0.0009          0.03%
+128x8192x512               0.0018          0.15%
+128x16384x512              0.0018          0.08%
+128x32768x512              0.0018          0.04%
+
+  KleidiAI outer N-block width chosen by autotuning (columns).
+  KleidiAI has no cache blocking of its own; this is the caller's
+  parameter and is tuned per shape so KleidiAI is measured at its best,
+  mirroring MaxMulSK being reported as the best of its six variants.
+
+M x K x N                 KAI 2VL      KAI 8VS
+----------------------------------------------
+256x256x256                   256          256
+512x512x512                   512          512
+1024x1024x1024                256          512
+2048x2048x2048               1024         1024
+4096x4096x4096                512          512
+64x8192x512                   128           64
+64x16384x512                   32           32
+64x32768x512                   32           32
+128x8192x512                   64           64
+128x16384x512                  64           32
+128x32768x512                 512          512
+
+  Ratio trend (MaxMulSK best / KleidiAI best, >1 means MaxMulSK ahead):
+
+M x K x N                end_to_end    kernel_only
+--------------------------------------------------
+256x256x256                   1.096          0.856
+512x512x512                   0.971          0.925
+1024x1024x1024                1.000          0.984
+2048x2048x2048                0.915          0.978
+4096x4096x4096                0.808          0.863
+64x8192x512                   0.924          0.967
+64x16384x512                  0.952          0.850
+64x32768x512                  0.853          1.124
+128x8192x512                  0.862          0.984
+128x16384x512                 0.951          0.967
+128x32768x512                 0.891          1.464
+
+=====================================================================
+  Compact summary (copy/paste)
+=====================================================================
+
+| Shape (MxKxN) | mode | MaxMulSK GF | KleidiAI GF | ratio | winner |
+|---|---|---:|---:|---:|---|
+| 256x256x256 | end_to_end | 1400.6 | 1278.3 | 1.10 | MaxMulSK |
+| 256x256x256 | kernel_only | 1684.7 | 1968.9 | 0.86 | KleidiAI |
+| 512x512x512 | end_to_end | 1660.0 | 1710.2 | 0.97 | KleidiAI |
+| 512x512x512 | kernel_only | 1834.4 | 1982.9 | 0.93 | KleidiAI |
+| 1024x1024x1024 | end_to_end | 1772.8 | 1772.3 | 1.00 | MaxMulSK |
+| 1024x1024x1024 | kernel_only | 1909.7 | 1940.5 | 0.98 | KleidiAI |
+| 2048x2048x2048 | end_to_end | 1495.5 | 1635.1 | 0.91 | KleidiAI |
+| 2048x2048x2048 | kernel_only | 1816.5 | 1857.9 | 0.98 | KleidiAI |
+| 4096x4096x4096 | end_to_end | 1321.7 | 1635.8 | 0.81 | KleidiAI |
+| 4096x4096x4096 | kernel_only | 1508.2 | 1748.6 | 0.86 | KleidiAI |
+| 64x8192x512 | end_to_end | 805.7 | 871.5 | 0.92 | KleidiAI |
+| 64x8192x512 | kernel_only | 1375.4 | 1422.8 | 0.97 | KleidiAI |
+| 64x16384x512 | end_to_end | 811.2 | 852.0 | 0.95 | KleidiAI |
+| 64x16384x512 | kernel_only | 1118.8 | 1316.5 | 0.85 | KleidiAI |
+| 64x32768x512 | end_to_end | 725.2 | 850.4 | 0.85 | KleidiAI |
+| 64x32768x512 | kernel_only | 1057.9 | 941.2 | 1.12 | MaxMulSK |
+| 128x8192x512 | end_to_end | 936.9 | 1086.8 | 0.86 | KleidiAI |
+| 128x8192x512 | kernel_only | 1564.7 | 1590.5 | 0.98 | KleidiAI |
+| 128x16384x512 | end_to_end | 1013.5 | 1066.1 | 0.95 | KleidiAI |
+| 128x16384x512 | kernel_only | 1275.8 | 1318.8 | 0.97 | KleidiAI |
+| 128x32768x512 | end_to_end | 902.7 | 1013.2 | 0.89 | KleidiAI |
+| 128x32768x512 | kernel_only | 1257.9 | 859.1 | 1.46 | MaxMulSK |
+
+  CSV written to bench/results/2026-09-06/maxmul_vs_kleidiai_run2.csv
+

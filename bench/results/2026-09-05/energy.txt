@@ -1,0 +1,45 @@
+ARCHIVED -- DO NOT USE FOR BEFORE/AFTER COMPARISON (noted 2026-09-06)
+
+This single run is background-contaminated. The two kernels that did not change
+between 2026-09-05 and 2026-09-06, sme-4x1 and sme-1x4sym, moved on their own by
+31% and 38% in J/GFLOP at 128x32768x512, and every implementation's average power
+at that shape fell by 20-28% between the dates. The control group did not hold,
+so nothing here can be attributed to a code change. It is kept because no
+measurement is deleted. Current energy figures: bench/results/2026-09-06/ and
+docs/BENCHMARKS.md 0.15.
+
+implementation     shape                GFLOP/s     CPU W   P-clu W     CPU J      J/GFLOP
+--------------------------------------------------------------------------------------------
+sme-4x1            1024x1024x1024        1212.6     8.772     0.000     26.32      0.00723
+sme-1x4sym         1024x1024x1024        1176.1     8.764     0.000     26.29      0.00745
+sme-1x4acc         1024x1024x1024        1712.6    10.537     0.000     31.62      0.00615
+sme-1x4acckc       1024x1024x1024        1738.0    10.605     0.000     31.82      0.00610
+kleidiai-fullpack  1024x1024x1024        1645.0    10.115     0.000     30.36      0.00615
+kleidiai-panel     1024x1024x1024        1689.5    10.667     0.000     32.01      0.00631
+accelerate         1024x1024x1024        1669.8    10.781     0.000     32.35      0.00646
+
+sme-4x1            2048x2048x2048        1274.5     8.617     0.000     25.90      0.00676
+sme-1x4sym         2048x2048x2048        1254.0     8.510     0.000     25.53      0.00679
+sme-1x4acc         2048x2048x2048        1517.3     9.715     0.000     29.15      0.00640
+sme-1x4acckc       2048x2048x2048        1575.8    10.106     0.000     30.41      0.00641
+kleidiai-fullpack  2048x2048x2048        1552.3    10.039     0.000     30.22      0.00647
+kleidiai-panel     2048x2048x2048        1591.7     9.801     0.000     29.41      0.00616
+accelerate         2048x2048x2048        1664.8    10.346     0.000     31.07      0.00621
+
+sme-4x1            4096x4096x4096        1212.2     8.691     0.000     26.61      0.00717
+sme-1x4sym         4096x4096x4096        1296.4    10.298     0.000     31.66      0.00794
+sme-1x4acc         4096x4096x4096        1160.2     9.665     0.000     29.77      0.00833
+sme-1x4acckc       4096x4096x4096        1114.8     8.321     0.000     25.65      0.00746
+kleidiai-fullpack  4096x4096x4096        1541.4     9.271     0.000     28.11      0.00602
+kleidiai-panel     4096x4096x4096        1464.3     8.794     0.000     27.24      0.00600
+accelerate         4096x4096x4096        1557.2     9.566     0.000     28.71      0.00614
+
+sme-4x1            128x32768x512          830.5     9.996     0.000     30.04      0.01204
+sme-1x4sym         128x32768x512          840.9    11.140     0.000     33.46      0.01325
+sme-1x4acc         128x32768x512          685.8     9.666     0.000     29.06      0.01409
+sme-1x4acckc       128x32768x512          707.6     7.159     0.000     21.51      0.01012
+kleidiai-fullpack  128x32768x512          508.5     6.222     0.000     18.71      0.01224
+kleidiai-panel     128x32768x512         1057.7     8.197     0.000     24.60      0.00775
+accelerate         128x32768x512         1116.2     8.892     0.000     26.69      0.00797
+
+==> bench/results/2026-09-05/energy.csv

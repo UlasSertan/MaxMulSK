@@ -1,7 +1,10 @@
 # Single-Thread GEMM Benchmark — Comparison Report
 
-> **Historical snapshot.** Current numbers (post bug-fix session, all six SME
-> kernels, clean MaxDiff column) live in [BENCHMARKS.md §0](BENCHMARKS.md).
+> **Historical snapshot (2026-04-15).** Kept for the progression; nothing here is
+> current. Today's numbers — eight SME kernels, plus head-to-head against Arm
+> KleidiAI and llama.cpp/ggml across micro-kernel, prepacked and end-to-end
+> modes — are in [BENCHMARKS.md §0.14](BENCHMARKS.md), with raw data under
+> [bench/results/](../bench/results/).
 
 **Date:** 2026-04-15 (updated; original NEON-only comparison: 2026-04-10)
 **Hardware:** Apple M4 (MacBook Air), arm64
@@ -56,7 +59,7 @@ Size (MxKxN)          Tag            NEON GF   SME 4x1   SME 2x2  Accel GF  OBla
 ```
 
 Note: Large MaxDiff values at ≥2048 sizes are due to floating-point accumulator precision, not correctness bugs.
-Pairwise summation (tree reduction instead of sequential accumulation) is planned to fix this.
+Pairwise summation (tree reduction instead of sequential accumulation) is planned to fix this. *(Not a real defect — see the note in Key Takeaways below.)*
 
 ---
 
@@ -124,7 +127,7 @@ NumPy peaks at ~112 GFLOPS — firmly NEON-tier. OpenBLAS continues to show erra
 
 ### Accumulator Precision Issue
 
-At sizes ≥ 2048, MaxDiff values between our SME kernels and Accelerate grow large (up to ~100). This is not a correctness bug — it is floating-point accumulation order sensitivity. With K=2048+, the ZA accumulator sums thousands of products sequentially, and the order of additions differs from Accelerate's implementation. Pairwise summation (tree reduction: `((A+B) + (C+D))` instead of `A+B+C+D`) is planned to reduce this.
+At sizes ≥ 2048, MaxDiff values between our SME kernels and Accelerate grow large (up to ~100). This is not a correctness bug — it is floating-point accumulation order sensitivity. With K=2048+, the ZA accumulator sums thousands of products sequentially, and the order of additions differs from Accelerate's implementation. Pairwise summation (tree reduction: `((A+B) + (C+D))` instead of `A+B+C+D`) is planned to reduce this. *(Superseded: the large MaxDiff was BUG-NEON-2X in the comparison baseline, not accumulation order. Closed as not-a-bug on 2026-07-25.)*
 
 ---
 
@@ -153,9 +156,9 @@ At sizes ≥ 2048, MaxDiff values between our SME kernels and Accelerate grow la
 
 4. **NEON kernel still beats NumPy by ~10%** and beats OpenBLAS on all non-aligned sizes. These conclusions from the original comparison remain unchanged.
 
-5. **Accumulator precision is the next correctness frontier.** At ≥2048 sizes, sequential float32 accumulation across thousands of K-steps produces unacceptable drift. Pairwise summation is the planned fix.
+5. **Accumulator precision is the next correctness frontier.** At ≥2048 sizes, sequential float32 accumulation across thousands of K-steps produces unacceptable drift. Pairwise summation is the planned fix. *(Wrong, resolved 2026-07-25: the drift was BUG-NEON-2X corrupting the comparison baseline. Measured against fp64 truth our kernels are more accurate than Accelerate; pairwise summation was never needed — BENCHMARKS.md §0.3.)*
 
-6. **Next steps:** SME multi-threading (expected to scale similarly to NEON's ~4.4× on 10 threads), accumulator precision fix, then Rust scheduling layer.
+6. **Next steps:** SME multi-threading (expected to scale similarly to NEON's ~4.4× on 10 threads), accumulator precision fix, then a tile-scheduling layer. *(Both later resolved differently: the precision item was closed as not-a-bug — see TODO.md — and the scheduling layer was dropped from the roadmap.)*
 
 ---
 

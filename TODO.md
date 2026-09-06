@@ -16,6 +16,11 @@
 ### ~~BUG-4: `pack_B_streaming` tail loop stores with full predicate~~ — FIXED (pre-existing)
 pack_B test was already passing. The garbage lanes in inactive positions don't affect correctness because the micro-kernel's B panel access stays within valid column bounds. Functionally harmless on current usage patterns.
 
+### HAZARD: the compiler will synthesise `__arm_sc_memset` / `__arm_sc_memcpy` inside streaming functions
+Any loop in an `__arm_streaming` function that writes a repeated pattern, or copies one buffer to another, can be recognised and lowered to the streaming-mode variant of `memset`/`memcpy` — neither of which has an implementation, so it fails at link time.
+
+Seen twice: `std::fill` → `__arm_sc_memset` (BUG-2x2-2 below), and, on 2026-09-05, a plain scalar edge-tile scatter → `__arm_sc_memcpy` after it was rewritten from `+=` to `=`. The fix in both cases is to write the loop with explicit SVE loads/stores (predicated where the extent is ragged), never as a scalar copy or fill.
+
 ### ~~BUG-5: `tmp[16]` fixed-size array in K-tail of `pack_A_streaming`~~ — FIXED
 **Fix applied:** K-tail now uses SVE-zeroed tmp buffer (`svst1_f32(pg, tmp, svdup_f32(0.0f))`) and only writes `rows_here` elements. Avoids `__arm_sc_memset` linker error that occurs when the compiler optimizes scalar zero-fill loops into streaming-incompatible memset calls.
 
@@ -105,7 +110,7 @@ Implemented in `sme/sme-1x4.{hpp,cpp}` (renamed from `SME-GEMMKernelsExperimenta
 
 **Fix applied:** `p = (m/SVL) % 4` + per-group base `packed_A + (m/GS)*GS*K_curr`, matching the layout the driver's read side (`packed_A + ir*kc`) always assumed. The SIGABRT half was BUG-4x1-SMALL-M; the same scratch-buffer fallback is now ported here. ZAPack re-enabled in `main.cpp`, `run_comparison()`, and `bench_compare`.
 
-**Result:** full suite PASS; benches ~1355 GFLOPS @ 1024³ — the highest single-thread number of any kernel in the repo. ZA-based pack transpose is a win in the L3 band.
+**Result:** full suite PASS; benches ~1355 GFLOPS @ 1024³ — at the time, the highest single-thread number of any kernel in the repo. *(Superseded 2026-09: 1×4-Acc reaches ~1773 at 1024³ end-to-end — docs/BENCHMARKS.md §0.14.)* ZA-based pack transpose is a win in the L3 band, and the same transpose was later ported into 1×4-Acc's `pack_A` (§0.13).
 
 ### ~~BUG-NEON-2X: NEON correctness fails (exact 2× output) at N > Nc_cache~~ — FIXED
 **Root cause:** `Nc_cache = 1024` violated its own "must be multiple of 12" invariant (12 × 85 = 1020). `multiply()` steps 12-wide panels across `current_Nc = 1024`, so the last panel started at column 1020 and wrote 8 columns into the NEXT j-block's territory — with real packed-B data, so those columns received the full correct contribution, then the next block accumulated it AGAIN → exactly 2×, precisely at cache-tile boundaries. Only fired for N > 1024 (needs a second block to double into), which is why `1024×1020×1024` was always clean.
@@ -120,7 +125,12 @@ Measured against float64 ground truth (`cblas_dgemm`), fp32 accumulation error a
 ## Remaining Minor Issues
 
 ### MINOR: profile_power.sh P/E-cluster regex
+Superseded for most uses by `bench/energy_bench.sh` + `bench/energy_parse.py`, which wrap each (implementation, shape) in its own `powermetrics` session and report W, J and J/GFLOP without needing `main.cpp` edited. `profile_power.sh` is still the path for profiling the main binary specifically.
+
+Original note:
 On M4 macOS Sonoma+, `powermetrics --samplers cpu_power` no longer prints the `P-Cluster Power: NNN mW` / `E-Cluster Power: NNN mW` lines that the parser expects — only `Combined Power` is captured. P-cluster and E-cluster averages currently report 0.0 W. Combined is the meaningful number for J/GFLOP, so this is cosmetic, but worth fixing.
+
+**Confirmed again 2026-09-06** in `bench/energy_bench.sh`, which has its own parser: the captures contain `E-Cluster Online` / HW-frequency / residency lines but no per-cluster *power* line, so both cluster columns read 0.0 W across all 28 measured points. The J/GFLOP figures in docs/BENCHMARKS.md §0.15 come from the combined figure and are unaffected.
 
 ### MINOR: OpenBLAS PMU counter undercount
 `scripts/profile.sh oblas` reports only ~650M instructions for a 3-second run at 2048³ × 100 iters (IPC ≈ 0.05 — implausible). Suspected: AMX-internal compute path doesn't count toward `INST_ALL`, OR the trace template loses events from dlopen'd dylib symbol attribution. Comparison against AMX/NEON paths via this counter is unreliable for OpenBLAS until investigated.
@@ -174,17 +184,29 @@ Unverified hypothesis — needs targeted experiments
 
 ---
 
+## Open Issues (opened 2026-09-05/06)
+
+### OPEN: 1×4-Acc's full-K packing inflates the working set
+Putting K innermost — the change that made ZA-resident accumulation over all of K possible — forces A and B to be packed over the **full K** rather than per `K_tile`. Each C tile then streams an `M_step × K` A panel and an `N_step × K` B panel, and the A panel is re-read for every N block. The result is a clear regression at the shapes where those panels stop fitting: prepacked 4096³ is 1048 GFLOP/s against 4×1's 1499, and K ≥ 16384 loses similarly. Neither the store rework (§0.10, §0.11) nor the ZA pack (§0.13) touches it. Capturing the ZA-lifetime win *without* the full-K packing is the open problem.
+
+### OPEN: measurement noise floor — no thread pinning on macOS
+Re-running an identical binary moves end-to-end figures by up to 14% on short shapes, while the within-run sample spread is only 1–5.6%. So the noise is constant within a measurement batch and changes between batches. It is **not** thermal: in one run a kernel gained 14% while two others lost 5% and a fourth did not move. Candidates are core placement (macOS gives QoS biasing, not pinning), physical page placement of freshly-allocated packing buffers, and background load; which dominates is not established. Current results are therefore the median of three full runs, with a per-row `spread_pct`. **Treat differences below ~5% as noise.**
+
+### OPEN: a failed build can silently leave a stale binary in an ad-hoc run
+`cmake --build … | grep -E "error|Built target"` returns *grep's* status, so a build failure passes unnoticed and the benchmark measures the previous code. This produced one wrong published result on 2026-09-05 before it was caught. `bench/grand_benchmark.sh` checks the exit status and aborts, and every archived result directory carries its `build.log`; ad-hoc runs must do the same.
+
 ## Next Steps (in order)
 
 0. **Create dynamic tiling.**
 
-1. **Investigate 1×4 IPC collapse.** Counter evidence says the kernel is FMOPA-latency-bound, not bandwidth-bound. Try: rotate across all 4 ZA tiles every instruction so no two adjacent FMOPAs touch the same tile; add an extra software-pipelining stage; experiment with K-unroll. Target: push IPC from 0.62 back toward 1.0+ and surpass 4×1.
+1. **Investigate 1×4 IPC collapse.** Counter evidence says the kernel is FMOPA-latency-bound, not bandwidth-bound. Try: rotate across all 4 ZA tiles every instruction so no two adjacent FMOPAs touch the same tile; add an extra software-pipelining stage. Target: push IPC from 0.62 back toward 1.0+ and surpass 4×1.
+   - ~~K-unroll~~ — **tried 2026-09-05 on 1×4-Acc, reverted.** Issuing four straight-line `micro_kernel` calls of `ACC=1024` per iteration instead of one call per `K_tile`. Net effect across shapes was a wash (within the ±5% noise floor) with a clear −10% regression at 64×32768×512. Not the bottleneck.
 2. **Investigate 2×2's high instruction count.** 2×2 burns ~8.6B instructions at 2048³ vs 4×1's ~4.6B (~87% more). Profile the pack phase separately from the compute phase to confirm where the instructions go.
 3. **Optimize SME kernel:**
-   - Explore tiling parameters (M_tile, K_tile, N_tile sweep) — ZAPack's win at 1024³ suggests M_tile=128 + ZA-transpose pack is underexplored.
+   - ~~ZA-transpose pack~~ — **done 2026-09-05.** Ported ZAPack's `svld1_hor_za32` / `svst1_ver_za32` transpose into 1×4-Acc's `pack_A`, replacing the SVE butterfly. Worth **+6…+12% end-to-end** net of control drift, and correctly ~0 in prepacked mode where packing sits outside the timed region (docs/BENCHMARKS.md §0.13).
+   - Explore tiling parameters (M_tile, K_tile, N_tile sweep) — still open; M_tile=128 remains underexplored.
    - Add OpenMP threading.
-4. **Rust scheduling layer** — heterogeneous work distribution (P-core vs E-core tile sizing).
-5. *Stretch:* explore other kernel shapes (4×8, 4×12, 8×8, 8×16 for NEON; alternative SME tile patterns).
+4. *Stretch:* explore other kernel shapes (4×8, 4×12, 8×8, 8×16 for NEON; alternative SME tile patterns).
 
 ### Done (2026-07-25 session)
 - ~~SME-ZA transpose~~ — working in both ZAPack (`svld1_hor_za32`/`svst1_ver_za32`) and 1x4ZAIO pack_A (2-tile rolling MOVA pipeline).
