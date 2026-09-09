@@ -1,0 +1,7 @@
+[  2%] Built target bench_profile
+[  2%] Built target matmul
+[  4%] Built target MaxMulSK
+[ 91%] Built target kleidiai
+[ 93%] Built target bench_compare
+[ 96%] Built target energy_bench
+[100%] Built target benchmark_maxmul_vs_kleidiai

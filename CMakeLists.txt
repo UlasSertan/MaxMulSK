@@ -119,7 +119,7 @@ set_source_files_properties(neon/neon-8x12.cpp neon/test_neon.cpp PROPERTIES
 )
 
 # SME: ARMv8.7 + SME/SME2 extensions (re-enable with the sources above)
-set_source_files_properties(sme/sme-4x1.cpp sme/sme-2x2.cpp sme/sme-1x4.cpp sme/sme-1x4-sym.cpp sme/sme-1x4-sym-zainout.cpp sme/sme-4x1-zapack.cpp sme/sme-1x4-acc.cpp sme/sme-1x4-acc-kc.cpp sme/test_sme.cpp PROPERTIES
+set_source_files_properties(sme/sme-4x1.cpp sme/sme-2x2.cpp sme/sme-1x4.cpp sme/sme-1x4-sym.cpp sme/sme-1x4-sym-zainout.cpp sme/sme-4x1-zapack.cpp sme/sme-1x4-acc.cpp sme/sme-1x4-acc-kc.cpp sme/sme-1x4-acc-fast.cpp sme/sme-1x4-acc-kcout.cpp sme/sme-1x4-acc-fast-kcout.cpp sme/sme-2x2-acc-kcout.cpp sme/sme-1x4-acc-kcout-bdirect.cpp sme/sme-4x1-acc-kcout.cpp sme/gemm_tuning.cpp sme/test_sme.cpp PROPERTIES
         COMPILE_OPTIONS "-march=armv8.7-a+sme+sme2"
 )
 
@@ -209,6 +209,13 @@ if(MAXMULSK_WITH_KLEIDIAI)
             sme/sme-4x1-zapack.cpp
             sme/sme-1x4-acc.cpp
             sme/sme-1x4-acc-kc.cpp
+            sme/sme-1x4-acc-fast.cpp
+            sme/sme-1x4-acc-kcout.cpp
+            sme/sme-1x4-acc-fast-kcout.cpp
+            sme/sme-2x2-acc-kcout.cpp
+            sme/sme-1x4-acc-kcout-bdirect.cpp
+            sme/sme-4x1-acc-kcout.cpp
+            sme/gemm_tuning.cpp
     )
 
     target_compile_options(benchmark_maxmul_vs_kleidiai PRIVATE
@@ -298,6 +305,13 @@ if(MAXMULSK_WITH_KLEIDIAI)
             sme/sme-4x1-zapack.cpp
             sme/sme-1x4-acc.cpp
             sme/sme-1x4-acc-kc.cpp
+            sme/sme-1x4-acc-fast.cpp
+            sme/sme-1x4-acc-kcout.cpp
+            sme/sme-1x4-acc-fast-kcout.cpp
+            sme/sme-2x2-acc-kcout.cpp
+            sme/sme-1x4-acc-kcout-bdirect.cpp
+            sme/sme-4x1-acc-kcout.cpp
+            sme/gemm_tuning.cpp
     )
     target_compile_options(energy_bench PRIVATE
             -O3 -Wall -Wextra -mcpu=apple-m4 -fopenmp)
@@ -306,6 +320,22 @@ if(MAXMULSK_WITH_KLEIDIAI)
             ${LIBOMP_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(energy_bench PRIVATE
             ${LIBOMP_LIBRARY} kleidiai "-framework Accelerate")
+
+    # ---------------------------------------------------------------------
+    # MaxMulSK vs OpenBLAS, head to head and nothing else.
+    #
+    # OpenBLAS is NOT linked here. It is dlopen'd at runtime because Accelerate
+    # is already in this process and both export cblas_sgemm; linking both would
+    # let the loader decide which one answers, which is exactly the ambiguity
+    # this benchmark exists to avoid. Nothing here needs OpenBLAS at build time.
+    # ---------------------------------------------------------------------
+    add_executable(bench_vs_openblas
+            bench/bench_vs_openblas.cpp
+            sme/sme-1x4-acc-kcout.cpp
+            sme/gemm_tuning.cpp
+    )
+    target_compile_options(bench_vs_openblas PRIVATE -O3 -Wall -Wextra -mcpu=apple-m4)
+    target_include_directories(bench_vs_openblas PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
 
 # =============================================================================

@@ -1,0 +1,30 @@
+=====================================================================
+  MaxMulSK vs OpenBLAS - single-thread FP32 GEMM, Apple M4
+=====================================================================
+
+  MaxMulSK   : SMEKernels1x4AccKcOut (blocking from sme/gemm_tuning.hpp)
+  OpenBLAS   : OpenBLAS 0.3.34 DYNAMIC_ARCH NO_AFFINITY USE_OPENMP vortexm4 MAX_THREADS=56
+  OB core    : vortexm4
+  Threads    : 1 (openblas_set_num_threads(1), plus OPENBLAS_NUM_THREADS)
+  Semantics  : both compute C = A*B (OpenBLAS beta = 0)
+
+group    M x K x N             MaxMulSK   spread      OpenBLAS   spread       ratio  max|diff|
+------------------------------------------------------------------------------------------------
+square   256x256x256             1412.8     0.2%        1331.1     0.0%       1.06x  0.00e+00
+square   512x512x512             1662.6     0.0%        1631.4     0.0%       1.02x  0.00e+00
+square   1024x1024x1024          1742.8     0.7%        1517.4     0.4%       1.15x  0.00e+00
+square   2048x2048x2048          1576.0     0.5%         644.2     0.4%       2.45x  0.00e+00
+square   4096x4096x4096          1480.0     0.7%         113.6     0.1%      13.03x  3.70e-04
+llm      64x8192x512              888.2     2.4%         608.8     2.9%       1.46x  4.73e-04
+llm      64x16384x512             777.0     1.9%         470.1     0.2%       1.65x  8.16e-04
+llm      64x32768x512             787.1     0.1%         481.9     1.2%       1.63x  1.59e-03
+llm      128x8192x512            1043.0     1.9%         607.3     3.3%       1.72x  4.84e-04
+llm      128x16384x512           1003.7     2.0%         468.1     0.2%       2.14x  1.07e-03
+llm      128x32768x512           1014.9     0.1%         484.7     0.1%       2.09x  2.33e-03
+
+  ratio > 1 means MaxMulSK is ahead. GFLOP/s from medians of three
+  timing blocks; spread is (max-min)/median across those blocks.
+  This machine has no thread pinning: treat differences under ~5% as noise.
+
+  checksum 1.596805e+02
+  -> bench/results/2026-09-09/vs_openblas_0334_brew.csv

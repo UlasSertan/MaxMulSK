@@ -2408,6 +2408,82 @@ win shows up as a shorter run rather than a cheaper one.
 
 ---
 
+### 0.16 MaxMulSK vs OpenBLAS (2026-09-09, median of three runs)
+
+**Measured:** 2026-09-09 · **CURRENT** · `bench/bench_vs_openblas.cpp`, single
+thread. MaxMulSK is `SMEKernels1x4AccKcOut` with the blocking table in
+`sme/gemm_tuning.hpp`. OpenBLAS is dlopen'd, not linked, because Accelerate is
+already in the process and both export `cblas_sgemm`.
+
+Raw data and full provenance: `bench/results/2026-09-09/`.
+
+| | Shape | MaxMulSK | OpenBLAS tuned | ratio | OpenBLAS stock | ratio |
+|---|---|---:|---:|---:|---:|---:|
+| square | 256³ | 1412.8 | 1326.7 | 1.06x | 1322.3 | 1.07x |
+| | 512³ | 1665.2 | 1622.0 | 1.03x | 1519.4 | 1.10x |
+| | 1024³ | 1745.7 | 1549.3 | 1.13x | 1433.7 | 1.22x |
+| | 2048³ | 1598.5 | 1296.4 | 1.23x | 627.8 | 2.55x |
+| | 4096³ | 1603.2 | 1240.5 | 1.29x | 113.3 | **14.15x** |
+| llm | 64×8192×512 | 880.0 | 625.7 | 1.41x | 649.7 | 1.35x |
+| | 64×16384×512 | 788.8 | 466.2 | 1.69x | 468.6 | 1.68x |
+| | 64×32768×512 | 792.5 | 479.3 | 1.65x | 475.9 | 1.67x |
+| | 128×8192×512 | 1040.3 | 621.7 | 1.67x | 590.8 | 1.76x |
+| | 128×16384×512 | 1004.4 | 460.8 | 2.18x | 463.7 | 2.17x |
+| | 128×32768×512 | 1002.9 | 485.2 | 2.07x | 483.9 | 2.07x |
+
+**Quote the "tuned" ratio, not the stock one.** The 14.15x at 4096³ is real but
+it measures OpenBLAS being mis-built, not MaxMulSK being fast. Against an
+OpenBLAS that reaches its own SME kernels the figure is 1.29x. The honest
+summary is: **level to +29% on squares, +35% to +118% on the large-K LLM
+shapes**, and the LLM column is the sturdier half (spreads 0.2–7.6%).
+
+#### What "tuned" means, and why it was needed
+
+Two things kept stock OpenBLAS off its own fast path. Neither involves MaxMulSK.
+
+1. **The blocked SME GEMM is unreachable without `DYNAMIC_ARCH`.**
+   `sme_sgemm_kernel.c` landed upstream 2026-08-11 and is absent from v0.3.34,
+   which is what Homebrew ships. `interface/gemm.c` calls it only under
+   `USE_SGEMM_KERNEL_DIRECT || DYNAMIC_ARCH`, gated on `gotoblas_corename()`
+   being `armv9sme` or, under clang, `vortexm4`. A static `TARGET=ARMV9SME`
+   build compiles the kernel but never calls it: `KERNEL.ARMV9SME` is the single
+   line `include KERNEL.ARMV8SVE`, so `SGEMMKERNEL` stays SVE. Fixing this took
+   4096³ from 113 to 1228 GFLOP/s.
+
+2. **The direct-path threshold is calibrated against a kernel that is no longer
+   the alternative.** `kernel/arm64/sgemm_direct_performant.c` picks the direct
+   path for `M*N*K < 3100³`, and its own comment says 3100 is where that path
+   "crosses the graph of the NEON SGEMM". With the SME kernel now on the other
+   side of the branch the crossover moved. Forcing each path at every size:
+
+   | n | SGEMM_DIRECT | SME_SGEMM_KERNEL |
+   |---:|---:|---:|
+   | 1280 | **1615.8** | 1307.3 |
+   | 1536 | **1504.2** | 1367.5 |
+   | 1792 | 1017.3 | **1404.5** |
+   | 2048 | 637.3 | **1302.5** |
+   | 4096 | 407.9 | **1242.7** |
+
+   The direct path peaks at 1280 and decays; the SME kernel is flat at
+   1240–1400. The real crossover is near 1792, so every square from roughly
+   1800 to 3100 takes the wrong branch. That is the entire 2048³ collapse:
+   628 → 1296 GFLOP/s once the threshold is corrected. Worth reporting upstream.
+
+#### Caveats
+
+- "Tuned" is a **local** build: develop @2154be86, `DYNAMIC_ARCH=1`, plus a
+  patch making the threshold settable via `OPENBLAS_DIRECT_LIMIT` (set to 1792).
+  That env var is ours, not an upstream feature.
+- The `ARMV9SME` core path is broken on this machine in three independent ways:
+  SIGILL at load when forced with `OPENBLAS_CORETYPE`, SIGILL at 4096³ when
+  built statically, and an illegal instruction in the `ismin` test. The usable
+  path is the auto-detected `vortexm4`, which under clang takes the same SME
+  branch.
+- MaxMulSK's 4096³ row carries an 8.6% spread across the three runs; treat
+  1.29x there as approximate. Every other row is under 5%.
+
+---
+
 ### 0.4 4×1 timing breakdown (fresh)
 
 ```

@@ -1,0 +1,5 @@
+date: 2026-09-08 22:43:26
+revision: 951377b
+dirty: 12 files
+kernels added since HEAD: sme-1x4-acc-fast, sme-1x4-acc-kcout, sme-1x4-acc-fast-kcout
+Kc (both kcout kernels): 2048

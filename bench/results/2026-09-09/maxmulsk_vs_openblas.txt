@@ -1,0 +1,30 @@
+=====================================================================
+  MaxMulSK vs OpenBLAS - single-thread FP32 GEMM, Apple M4
+=====================================================================
+
+  MaxMulSK   : SMEKernels1x4AccKcOut (blocking from sme/gemm_tuning.hpp)
+  OpenBLAS   : OpenBLAS 0.3.34 DYNAMIC_ARCH NO_AFFINITY USE_OPENMP vortexm4 MAX_THREADS=56
+  OB core    : vortexm4
+  Threads    : 1 (openblas_set_num_threads(1), plus OPENBLAS_NUM_THREADS)
+  Semantics  : both compute C = A*B (OpenBLAS beta = 0)
+
+group    M x K x N             MaxMulSK   spread      OpenBLAS   spread       ratio  max|diff|
+------------------------------------------------------------------------------------------------
+square   256x256x256             1390.9     0.0%        1346.6     0.2%       1.03x  0.00e+00
+square   512x512x512             1638.9     1.7%        1607.6     0.2%       1.02x  0.00e+00
+square   1024x1024x1024          1522.7     2.9%        1299.4     1.9%       1.17x  0.00e+00
+square   2048x2048x2048          1456.9     1.9%         446.4     9.4%       3.26x  0.00e+00
+square   4096x4096x4096          1292.2    10.7%         102.8     4.0%      12.58x  3.74e-04
+llm      64x8192x512              785.8     1.5%         493.1     2.6%       1.59x  4.58e-04
+llm      64x16384x512             717.8     0.7%         410.1     0.6%       1.75x  8.54e-04
+llm      64x32768x512             716.7     4.7%         448.1     1.1%       1.60x  1.74e-03
+llm      128x8192x512            1015.3     0.9%         541.2     0.8%       1.88x  6.10e-04
+llm      128x16384x512            970.9     1.1%         438.6     0.6%       2.21x  1.04e-03
+llm      128x32768x512            965.2     0.2%         448.7     1.0%       2.15x  1.79e-03
+
+  ratio > 1 means MaxMulSK is ahead. GFLOP/s from medians of three
+  timing blocks; spread is (max-min)/median across those blocks.
+  This machine has no thread pinning: treat differences under ~5% as noise.
+
+  checksum 3.959553e+01
+  -> bench/results/2026-09-09/maxmulsk_vs_openblas.csv

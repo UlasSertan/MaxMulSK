@@ -78,7 +78,8 @@ Benchmarked on Apple M4, single-threaded float32 GEMM. The rows below are the 20
 | **Our SME 2×2** | SME/ZA | **~1308 (1024³)** | Best of the pre-Acc kernels at ≤512³; balanced 32×32 output tile |
 | Our NEON kernel | NEON | ~123 | At theoretical NEON ceiling; correct at all shapes |
 | NumPy 2.1 (macOS) | vecLib NEON | ~112 | Does *not* take the AMX path for `np.matmul(float32)` |
-| OpenBLAS 0.3.32 | NEON | ~113–1590 | Strong at L3 sizes, collapses to ~110 at 2048³+ on non-aligned shapes |
+| OpenBLAS (develop, SME) | SME/SVE | **~1240–1622** (squares), ~460–650 (large-K) | Reaches its SME kernels only with `DYNAMIC_ARCH`; no collapse once it does (§0.16) |
+| OpenBLAS 0.3.34 (Homebrew) | SME direct path only | ~113–1519 | Fast to 1024³, then falls off: 628 at 2048³, 113 at 4096³ — a build/threshold artefact, not the library's ceiling |
 
 Correctness: MaxDiff vs Accelerate/OpenBLAS ≤ 0.0004 across all 19 benchmark shapes (pure fp32 rounding). Against float64 ground truth at 4096³, our kernels are *more accurate* than Accelerate (maxErr: NEON 0.000115, SME 4×1 0.000209, Accelerate 0.000348 — docs/BENCHMARKS.md §0.3).
 
@@ -105,6 +106,7 @@ Correctness: MaxDiff vs Accelerate/OpenBLAS ≤ 0.0004 across all 19 benchmark s
 - **Prepacked, we are level with KleidiAI at 2048³ and lead on the large-K LLM shapes.** 1810 vs 1799 is 0.6% — a tie under this repo's own ±5% noise rule, not a lead. The large-K lead is real: 1275 vs 923 at 128×32768×512, though that figure is 1×4-sym's; 1×4-Acc manages only 965 there (§0.14).
 - **Our SME micro-kernel's arithmetic matches KleidiAI's exactly.** Fitting per-invocation time against Kc gives the same slope for both (~2008 GFLOP/s of pure compute); the whole difference was fixed per-call cost, which four rounds of work cut from 356 ns to 52 ns (§0.9-A).
 - **SME is ~14× faster than NEON** on the same single core (1773 vs ~123) — the ZA accumulator is a fundamentally different compute tier.
+- **OpenBLAS is a much closer competitor than a stock install suggests (§0.16).** Built so its SME GEMM kernels are actually reachable, it holds 1240–1622 GFLOP/s across every square and never collapses; we lead by 1.03× at 512³ rising to 1.29× at 4096³. Against the Homebrew build the gap looks like 14× at 4096³, but that number measures a mis-built OpenBLAS rather than our kernel, and it is not the figure to quote. Our real margin is on the large-K LLM shapes: **1.35×–2.18×**.
 - **Our SME 4×1 beats PyTorch on energy efficiency** (0.0065 vs 0.0076 J/GFLOP, 2026-04-26) despite running slower in wall-clock terms — PyTorch's dispatcher overhead inflates total energy at 2048³. PyTorch has not been re-measured since; our own kernels have (§0.15).
 - **NumPy is ~10× less efficient than our SME** in J/GFLOP. Single-threaded `np.matmul(float32)` on macOS takes the vecLib NEON path, not AMX; PyTorch's own dispatcher reaches AMX correctly.
 - **Size-dependent SME ranking (2026-09-06, end-to-end):** the 1×4-Acc pair owns everything up to 2048³ — 1398 at 256³, 1660 at 512³, 1773 at 1024³, 1481 at 2048³ — while 1×4-sym still owns 4096³ (1326) and the pre-Acc kernels hold the K=32768 shapes (4×1-ZAPack 901 vs Acc's 736 at 128×32768×512), where Acc's full-K packing hurts most. The older ranking (2×2 ≤512³, 1×4ZAIO at 2048³) described the six kernels that existed before the Acc line.
@@ -185,7 +187,7 @@ MaxMulSK/
 - LLVM/Clang — `brew install llvm` (Apple's bundled Clang lacks SME/SME2 intrinsics)
 - libomp — `brew install libomp`
 - CMake 3.30+
-- OpenBLAS — `brew install openblas`, for `bench_compare` only (loaded via `dlopen`, optional at runtime)
+- OpenBLAS — `brew install openblas`, for `bench_compare` and `bench_vs_openblas` (loaded via `dlopen`, optional at runtime). The Homebrew build cannot reach its own SME GEMM kernels; to compare against OpenBLAS at its best, build `develop` with `DYNAMIC_ARCH=1` and point `OPENBLAS_DYLIB` at it (docs/BENCHMARKS.md §0.16)
 - Python with `numpy` and `torch` — for `bench_python.py` only
 - **Arm KleidiAI** — fetched and built automatically at a pinned tag (`v1.30.0`). Turn it off with `-DMAXMULSK_WITH_KLEIDIAI=OFF`, or point at an existing checkout with `-DFETCHCONTENT_SOURCE_DIR_KLEIDIAI=...`
 - **llama.cpp / ggml** *(optional)* — only for the ggml CPU baseline rows. Build it CPU-only, then point CMake at it

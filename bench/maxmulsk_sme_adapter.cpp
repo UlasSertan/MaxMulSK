@@ -20,6 +20,8 @@
 #include "../sme/sme-4x1-zapack.hpp"
 #include "../sme/sme-1x4-acc.hpp"
 #include "../sme/sme-1x4-acc-kc.hpp"
+#include "../sme/sme-1x4-acc-kcout.hpp"
+#include "../sme/sme-1x4-acc-fast-kcout.hpp"
 
 namespace MaxMulSK {
 namespace {
@@ -533,6 +535,8 @@ const char* name(Kernel k) {
         case Kernel::Sme1x4SymZAIO: return "SMEKernels1x4SymZAInOut::run_multiplication";
         case Kernel::Sme1x4Acc:     return "SMEKernels1x4Acc::run_multiplication";
         case Kernel::Sme1x4AccKc:   return "SMEKernels1x4AccKc::run_multiplication";
+        case Kernel::Sme1x4AccKcOut:     return "SMEKernels1x4AccKcOut::run_multiplication";
+        case Kernel::Sme1x4AccFastKcOut: return "SMEKernels1x4AccFastKcOut::run_multiplication";
     }
     return "?";
 }
@@ -547,16 +551,28 @@ const char* label(Kernel k) {
         case Kernel::Sme1x4SymZAIO: return "SME 1x4ZAIO";
         case Kernel::Sme1x4Acc:     return "SME 1x4Acc";
         case Kernel::Sme1x4AccKc:   return "SME 1x4AccKc";
+        case Kernel::Sme1x4AccKcOut:     return "SME 1x4AccKcOut";
+        case Kernel::Sme1x4AccFastKcOut: return "SME 1x4AccFastKcOut";
     }
     return "?";
 }
 
-bool has_kernel_only(Kernel k) { return k != Kernel::Sme1x4SymZAIO; }
-
-bool overwrites_C(Kernel k) {
-    return k == Kernel::Sme1x4Acc || k == Kernel::Sme1x4AccKc;
+bool has_kernel_only(Kernel k) {
+    return k != Kernel::Sme1x4SymZAIO &&
+           k != Kernel::Sme1x4AccKcOut &&
+           k != Kernel::Sme1x4AccFastKcOut;
 }
 
+bool overwrites_C(Kernel k) {
+    // The outer-Kc variants touch each C tile K/Kc times, but the first panel
+    // still overwrites, so the caller must not pre-zero them either.
+    return k == Kernel::Sme1x4Acc || k == Kernel::Sme1x4AccKc ||
+           k == Kernel::Sme1x4AccKcOut || k == Kernel::Sme1x4AccFastKcOut;
+}
+
+// Only the two kernels the Prepacked / HotMicro replay understands. The
+// outer-Kc variants overwrite C too, but they never reach those paths
+// (has_kernel_only() is false for them), so they are deliberately excluded here.
 static bool is_acc(Kernel k) {
     return k == Kernel::Sme1x4Acc || k == Kernel::Sme1x4AccKc;
 }
@@ -577,6 +593,8 @@ void run(Kernel k, const float* A, const float* B, float* C,
         case Kernel::Sme1x4SymZAIO: SMEKernels1x4SymZAInOut::run_multiplication(A, B, C, M, K, N); break;
         case Kernel::Sme1x4Acc:     SMEKernels1x4Acc::run_multiplication(A, B, C, M, K, N); break;
         case Kernel::Sme1x4AccKc:   SMEKernels1x4AccKc::run_multiplication(A, B, C, M, K, N); break;
+        case Kernel::Sme1x4AccKcOut:     SMEKernels1x4AccKcOut::run_multiplication(A, B, C, M, K, N); break;
+        case Kernel::Sme1x4AccFastKcOut: SMEKernels1x4AccFastKcOut::run_multiplication(A, B, C, M, K, N); break;
     }
 }
 
@@ -631,7 +649,9 @@ void Prepacked::prepare(Kernel k, const float* A, const float* B,
                 acc_prepack<true>(A, B, s.acc_blocks, s.bufA.get(), s.bufB.get());
             break;
         }
-        case Kernel::Sme1x4SymZAIO: break;  // unsupported; see has_kernel_only()
+        case Kernel::Sme1x4SymZAIO:
+        case Kernel::Sme1x4AccKcOut:
+        case Kernel::Sme1x4AccFastKcOut: break;  // unsupported; see has_kernel_only()
     }
 }
 
@@ -652,7 +672,9 @@ void Prepacked::compute(float* C) const {
             acc_compute<false>(C, s.acc_blocks, s.bufA.get(), s.bufB.get(), s.scratch.get()); break;
         case Kernel::Sme1x4AccKc:
             acc_compute<true>(C, s.acc_blocks, s.bufA.get(), s.bufB.get(), s.scratch.get()); break;
-        case Kernel::Sme1x4SymZAIO: break;
+        case Kernel::Sme1x4SymZAIO:
+        case Kernel::Sme1x4AccKcOut:
+        case Kernel::Sme1x4AccFastKcOut: break;  // see has_kernel_only()
     }
 }
 
@@ -724,7 +746,9 @@ void HotMicro::prepare(Kernel k, size_t Kc, const float* A_small, const float* B
                                    s.m_step, s.n_step, Kc);
             break;
         }
-        case Kernel::Sme1x4SymZAIO: break;
+        case Kernel::Sme1x4SymZAIO:
+        case Kernel::Sme1x4AccKcOut:
+        case Kernel::Sme1x4AccFastKcOut: break;  // see has_kernel_only()
     }
 }
 
@@ -757,7 +781,9 @@ void HotMicro::run_batch(size_t reps) const {
             acc_hot_batch<false>(s.bufA.get(), s.bufB.get(), s.tile.get(), s.Kc, s.n_step, reps); break;
         case Kernel::Sme1x4AccKc:
             acc_hot_batch<true>(s.bufA.get(), s.bufB.get(), s.tile.get(), s.Kc, s.n_step, reps); break;
-        case Kernel::Sme1x4SymZAIO: break;
+        case Kernel::Sme1x4SymZAIO:
+        case Kernel::Sme1x4AccKcOut:
+        case Kernel::Sme1x4AccFastKcOut: break;  // see has_kernel_only()
     }
 }
 
@@ -779,7 +805,9 @@ void HotMicro::run_batch_isolated_streaming(size_t reps) const {
                 acc_hot_batch<false>(s.bufA.get(), s.bufB.get(), s.tile.get(), s.Kc, s.n_step, 1); break;
             case Kernel::Sme1x4AccKc:
                 acc_hot_batch<true>(s.bufA.get(), s.bufB.get(), s.tile.get(), s.Kc, s.n_step, 1); break;
-            case Kernel::Sme1x4SymZAIO: break;
+            case Kernel::Sme1x4SymZAIO:
+            case Kernel::Sme1x4AccKcOut:
+            case Kernel::Sme1x4AccFastKcOut: break;  // see has_kernel_only()
         }
     }
 }

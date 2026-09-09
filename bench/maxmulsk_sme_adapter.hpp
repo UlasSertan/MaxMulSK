@@ -55,12 +55,21 @@ enum class Kernel {
     // granularity.
     Sme1x4Acc,
     Sme1x4AccKc,
+    // Outer-Kc variants: the whole M x N sweep runs once per Kc slice of K, so
+    // the packed buffers scale with Kc instead of K and stay inside L2 on
+    // large-K shapes. Each C tile is visited K/Kc times - first panel
+    // overwrites, the rest accumulate. KcOut repacks per tile like Acc;
+    // FastKcOut packs each region once per panel and reuses it.
+    // End-to-end only, see has_kernel_only().
+    Sme1x4AccKcOut,
+    Sme1x4AccFastKcOut,
 };
 
 inline constexpr Kernel kAllKernels[] = {
     Kernel::Sme4x1, Kernel::Sme2x2, Kernel::Sme1x4,
     Kernel::Sme1x4Sym, Kernel::Sme4x1ZAPack, Kernel::Sme1x4SymZAIO,
     Kernel::Sme1x4Acc, Kernel::Sme1x4AccKc,
+    Kernel::Sme1x4AccKcOut, Kernel::Sme1x4AccFastKcOut,
 };
 
 const char* name(Kernel k);   // e.g. "SMEKernels4x1::run_multiplication"
@@ -85,6 +94,12 @@ void run(Kernel k, const float* A, const float* B, float* C,
 // packs the full K up front) and splits the micro-kernel into zero/compute/
 // store around ZA-resident accumulation, so it does not share the skeleton the
 // adapter replays. It is benchmarked end-to-end only.
+//
+// Also false for the two outer-Kc variants, for a different reason: their whole
+// mechanism IS the packing schedule. Hoisting packing out of the timed region
+// would erase the thing being measured, and would require materialising the
+// full-K packed buffers those kernels exist to avoid. A prepacked number for
+// them would be misleading rather than merely absent.
 bool has_kernel_only(Kernel k);
 
 // Experiment 1: the true hot-microkernel ceiling.

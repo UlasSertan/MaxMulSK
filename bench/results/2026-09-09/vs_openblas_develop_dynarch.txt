@@ -1,0 +1,30 @@
+=====================================================================
+  MaxMulSK vs OpenBLAS - single-thread FP32 GEMM, Apple M4
+=====================================================================
+
+  MaxMulSK   : SMEKernels1x4AccKcOut (blocking from sme/gemm_tuning.hpp)
+  OpenBLAS   : OpenBLAS 0.3.34.dev NO_LAPACK NO_LAPACKE DYNAMIC_ARCH NO_AFFINITY vortexm4 SINGLE_THREADED
+  OB core    : vortexm4
+  Threads    : 1 (openblas_set_num_threads(1), plus OPENBLAS_NUM_THREADS)
+  Semantics  : both compute C = A*B (OpenBLAS beta = 0)
+
+group    M x K x N             MaxMulSK   spread      OpenBLAS   spread       ratio  max|diff|
+------------------------------------------------------------------------------------------------
+square   256x256x256             1393.2     0.2%        1326.7     0.0%       1.05x  0.00e+00
+square   512x512x512             1654.5     0.0%        1630.2     0.1%       1.01x  0.00e+00
+square   1024x1024x1024          1768.6     0.6%        1521.7     2.2%       1.16x  0.00e+00
+square   2048x2048x2048          1548.0     2.0%         632.0     4.3%       2.45x  0.00e+00
+square   4096x4096x4096          1535.4     2.8%        1227.8     0.9%       1.25x  0.00e+00
+llm      64x8192x512              885.6     1.2%         590.1     6.8%       1.50x  4.73e-04
+llm      64x16384x512             800.3     2.1%         457.4     3.7%       1.75x  8.16e-04
+llm      64x32768x512             792.4     0.5%         462.5     3.1%       1.71x  1.59e-03
+llm      128x8192x512            1059.8     1.0%         591.1     1.9%       1.79x  4.84e-04
+llm      128x16384x512           1020.6     0.5%         465.3     1.3%       2.19x  1.07e-03
+llm      128x32768x512           1034.0     0.2%         481.3     0.2%       2.15x  2.33e-03
+
+  ratio > 1 means MaxMulSK is ahead. GFLOP/s from medians of three
+  timing blocks; spread is (max-min)/median across those blocks.
+  This machine has no thread pinning: treat differences under ~5% as noise.
+
+  checksum 1.596805e+02
+  -> bench/results/2026-09-09/vs_openblas_develop_dynarch.csv
