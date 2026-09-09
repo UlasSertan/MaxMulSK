@@ -98,13 +98,13 @@ add_executable(MaxMulSK
         main.cpp
         neon/neon-8x12.cpp
         neon/test_neon.cpp
-        sme/sme-4x1.cpp
-        sme/sme-2x2.cpp
-        sme/sme-1x4.cpp
-        sme/sme-1x4-sym.cpp
-        sme/sme-1x4-sym-zainout.cpp
-        sme/sme-4x1-zapack.cpp
-        sme/test_sme.cpp
+        sme/v1/sme-4x1.cpp
+        sme/v1/sme-2x2.cpp
+        sme/v1/sme-1x4.cpp
+        sme/v1/sme-1x4-sym.cpp
+        sme/experimental/v1/sme-1x4-sym-zainout.cpp
+        sme/experimental/v1/sme-4x1-zapack.cpp
+        sme/support/test_sme.cpp
 )
 
 target_compile_options(MaxMulSK PRIVATE
@@ -119,7 +119,7 @@ set_source_files_properties(neon/neon-8x12.cpp neon/test_neon.cpp PROPERTIES
 )
 
 # SME: ARMv8.7 + SME/SME2 extensions (re-enable with the sources above)
-set_source_files_properties(sme/sme-4x1.cpp sme/sme-2x2.cpp sme/sme-1x4.cpp sme/sme-1x4-sym.cpp sme/sme-1x4-sym-zainout.cpp sme/sme-4x1-zapack.cpp sme/sme-1x4-acc.cpp sme/sme-1x4-acc-kc.cpp sme/sme-1x4-acc-fast.cpp sme/sme-1x4-acc-kcout.cpp sme/sme-1x4-acc-fast-kcout.cpp sme/sme-2x2-acc-kcout.cpp sme/sme-1x4-acc-kcout-bdirect.cpp sme/sme-4x1-acc-kcout.cpp sme/gemm_tuning.cpp sme/test_sme.cpp PROPERTIES
+set_source_files_properties(sme/v1/sme-4x1.cpp sme/v1/sme-2x2.cpp sme/v1/sme-1x4.cpp sme/v1/sme-1x4-sym.cpp sme/experimental/v1/sme-1x4-sym-zainout.cpp sme/experimental/v1/sme-4x1-zapack.cpp sme/v2/sme-1x4-acc.cpp sme/v2/sme-1x4-acc-kc.cpp sme/experimental/v2/sme-1x4-acc-fast.cpp sme/v3/sme-1x4-acc-kcout.cpp sme/experimental/v3/sme-1x4-acc-fast-kcout.cpp sme/v3/sme-2x2-acc-kcout.cpp sme/experimental/v3/sme-1x4-acc-kcout-bdirect.cpp sme/v3/sme-4x1-acc-kcout.cpp sme/support/gemm_tuning.cpp sme/support/test_sme.cpp PROPERTIES
         COMPILE_OPTIONS "-march=armv8.7-a+sme+sme2"
 )
 
@@ -139,9 +139,9 @@ add_executable(bench_compare
         bench/bench_compare.cpp
         bench/kleidiai_gemm.cpp
         neon/neon-8x12.cpp
-        sme/sme-4x1.cpp
-        sme/sme-2x2.cpp
-        sme/sme-4x1-zapack.cpp
+        sme/v1/sme-4x1.cpp
+        sme/v1/sme-2x2.cpp
+        sme/experimental/v1/sme-4x1-zapack.cpp
 )
 
 target_compile_options(bench_compare PRIVATE
@@ -201,21 +201,21 @@ if(MAXMULSK_WITH_KLEIDIAI)
             bench/maxmulsk_sme_adapter.cpp
             bench/ggml_gemm_baseline.cpp
             bench/kleidiai_gemm.cpp
-            sme/sme-4x1.cpp
-            sme/sme-2x2.cpp
-            sme/sme-1x4.cpp
-            sme/sme-1x4-sym.cpp
-            sme/sme-1x4-sym-zainout.cpp
-            sme/sme-4x1-zapack.cpp
-            sme/sme-1x4-acc.cpp
-            sme/sme-1x4-acc-kc.cpp
-            sme/sme-1x4-acc-fast.cpp
-            sme/sme-1x4-acc-kcout.cpp
-            sme/sme-1x4-acc-fast-kcout.cpp
-            sme/sme-2x2-acc-kcout.cpp
-            sme/sme-1x4-acc-kcout-bdirect.cpp
-            sme/sme-4x1-acc-kcout.cpp
-            sme/gemm_tuning.cpp
+            sme/v1/sme-4x1.cpp
+            sme/v1/sme-2x2.cpp
+            sme/v1/sme-1x4.cpp
+            sme/v1/sme-1x4-sym.cpp
+            sme/experimental/v1/sme-1x4-sym-zainout.cpp
+            sme/experimental/v1/sme-4x1-zapack.cpp
+            sme/v2/sme-1x4-acc.cpp
+            sme/v2/sme-1x4-acc-kc.cpp
+            sme/experimental/v2/sme-1x4-acc-fast.cpp
+            sme/v3/sme-1x4-acc-kcout.cpp
+            sme/experimental/v3/sme-1x4-acc-fast-kcout.cpp
+            sme/v3/sme-2x2-acc-kcout.cpp
+            sme/experimental/v3/sme-1x4-acc-kcout-bdirect.cpp
+            sme/v3/sme-4x1-acc-kcout.cpp
+            sme/support/gemm_tuning.cpp
     )
 
     target_compile_options(benchmark_maxmul_vs_kleidiai PRIVATE
@@ -297,21 +297,21 @@ if(MAXMULSK_WITH_KLEIDIAI)
             bench/energy_bench.cpp
             bench/maxmulsk_sme_adapter.cpp
             bench/kleidiai_gemm.cpp
-            sme/sme-4x1.cpp
-            sme/sme-2x2.cpp
-            sme/sme-1x4.cpp
-            sme/sme-1x4-sym.cpp
-            sme/sme-1x4-sym-zainout.cpp
-            sme/sme-4x1-zapack.cpp
-            sme/sme-1x4-acc.cpp
-            sme/sme-1x4-acc-kc.cpp
-            sme/sme-1x4-acc-fast.cpp
-            sme/sme-1x4-acc-kcout.cpp
-            sme/sme-1x4-acc-fast-kcout.cpp
-            sme/sme-2x2-acc-kcout.cpp
-            sme/sme-1x4-acc-kcout-bdirect.cpp
-            sme/sme-4x1-acc-kcout.cpp
-            sme/gemm_tuning.cpp
+            sme/v1/sme-4x1.cpp
+            sme/v1/sme-2x2.cpp
+            sme/v1/sme-1x4.cpp
+            sme/v1/sme-1x4-sym.cpp
+            sme/experimental/v1/sme-1x4-sym-zainout.cpp
+            sme/experimental/v1/sme-4x1-zapack.cpp
+            sme/v2/sme-1x4-acc.cpp
+            sme/v2/sme-1x4-acc-kc.cpp
+            sme/experimental/v2/sme-1x4-acc-fast.cpp
+            sme/v3/sme-1x4-acc-kcout.cpp
+            sme/experimental/v3/sme-1x4-acc-fast-kcout.cpp
+            sme/v3/sme-2x2-acc-kcout.cpp
+            sme/experimental/v3/sme-1x4-acc-kcout-bdirect.cpp
+            sme/v3/sme-4x1-acc-kcout.cpp
+            sme/support/gemm_tuning.cpp
     )
     target_compile_options(energy_bench PRIVATE
             -O3 -Wall -Wextra -mcpu=apple-m4 -fopenmp)
@@ -331,8 +331,8 @@ if(MAXMULSK_WITH_KLEIDIAI)
     # ---------------------------------------------------------------------
     add_executable(bench_vs_openblas
             bench/bench_vs_openblas.cpp
-            sme/sme-1x4-acc-kcout.cpp
-            sme/gemm_tuning.cpp
+            sme/v3/sme-1x4-acc-kcout.cpp
+            sme/support/gemm_tuning.cpp
     )
     target_compile_options(bench_vs_openblas PRIVATE -O3 -Wall -Wextra -mcpu=apple-m4)
     target_include_directories(bench_vs_openblas PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -370,7 +370,7 @@ target_link_libraries(bench_profile PRIVATE
 # =============================================================================
 add_executable(matmul
         experiments/matmul.cpp
-        sme/sme-1x4-sym-zainout.cpp
+        sme/experimental/v1/sme-1x4-sym-zainout.cpp
 )
 
 target_compile_options(matmul PRIVATE

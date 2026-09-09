@@ -137,16 +137,28 @@ MaxMulSK/
 ├── neon/
 │   ├── neon-8x12.hpp/.cpp         # NEON 8×12 kernel + packing + OpenMP driver
 │   └── test_neon.hpp/.cpp         # Packing + GEMM correctness vs scalar
-├── sme/
-│   ├── sme-4x1.hpp/.cpp               # SME 4×1 kernel + packing — most efficient at large K
-│   ├── sme-2x2.hpp/.cpp               # SME 2×2 kernel + interleaved B packing
-│   ├── sme-1x4.hpp/.cpp               # SME 1×4 B-inner kernel (x1 interleaved loads)
-│   ├── sme-1x4-sym.hpp/.cpp           # SME 1×4 x4-grouped B loads — our best at 4096³
-│   ├── sme-1x4-sym-zainout.hpp/.cpp   # 1×4-sym with split zero/compute/store sharing ZA via __arm_inout
-│   ├── sme-4x1-zapack.hpp/.cpp        # SME 4×1 with ZA-based pack_A transpose, M_tile=128
-│   ├── sme-1x4-acc.hpp/.cpp           # 1×4-Acc: K innermost, ZA-resident over all K, overwriting store, ZA pack_A
-│   ├── sme-1x4-acc-kc.hpp/.cpp        # 1×4-Acc with the K tile split into Kc sub-chunks
-│   └── test_sme.hpp/.cpp              # Single dispatch surface: SMETest::Kernel enum + run / run_comparison / run_timing_breakdown / profile
+├── sme/                               # grouped by generation; v3 is current
+│   ├── v1/                            # ZA lifetime lives inside the micro-kernel
+│   │   ├── sme-4x1.hpp/.cpp           # 4×SVL × 1×SVL tile, A-inner
+│   │   ├── sme-2x2.hpp/.cpp           # 2×SVL × 2×SVL tile, interleaved B packing
+│   │   ├── sme-1x4.hpp/.cpp           # 1×SVL × 4×SVL tile, x1 interleaved B loads
+│   │   └── sme-1x4-sym.hpp/.cpp       # same tile, x4-grouped B loads (true mirror of 4×1)
+│   ├── v2/                            # ZA lifetime lifted into the driver: K innermost,
+│   │   ├── sme-1x4-acc.hpp/.cpp       #   ZA held across all of K, overwriting row-major
+│   │   └── sme-1x4-acc-kc.hpp/.cpp    #   store, ZA-transpose pack_A. Costs full-K packing.
+│   ├── v3/                            # v2 + an OUTER Kc loop, which fixes that packing cost
+│   │   ├── sme-1x4-acc-kcout.hpp/.cpp # 1×4 geometry — the fastest of the three
+│   │   ├── sme-2x2-acc-kcout.hpp/.cpp # 2×2 geometry
+│   │   └── sme-4x1-acc-kcout.hpp/.cpp # 4×1 geometry
+│   ├── experimental/                  # measured, kept, NOT on the fast path
+│   │   ├── v1/sme-1x4-sym-zainout     #   ZA-resident K accumulation, K_inner_tile=40
+│   │   ├── v1/sme-4x1-zapack          #   4×1 with ZA-based pack_A, M_tile=128
+│   │   ├── v2/sme-1x4-acc-fast        #   pack A and B once for the whole matrix
+│   │   ├── v3/sme-1x4-acc-fast-kcout  #   same, per K panel
+│   │   └── v3/sme-1x4-acc-kcout-bdirect #  no pack_B at all, B read in place
+│   └── support/
+│       ├── gemm_tuning.hpp/.cpp       # shape-dependent blocking table (§0.16 neighbours)
+│       └── test_sme.hpp/.cpp          # dispatch surface: run / run_comparison / profile
 ├── bench/
 │   ├── bench_compare.cpp          # C++ comparison: NEON / SME / Accelerate / OpenBLAS
 │   ├── bench_python.py            # Python comparison: NumPy / PyTorch

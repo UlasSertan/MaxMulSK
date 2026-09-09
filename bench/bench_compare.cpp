@@ -28,9 +28,9 @@
 #include "../neon/neon-8x12.hpp"
 
 // Our SME Kernel
-#include "../sme/sme-4x1.hpp"       // 4x1 version
-#include "../sme/sme-2x2.hpp"       // 2x2 version
-#include "../sme/sme-4x1-zapack.hpp" // 4x1 with ZA-based pack_A
+#include "../sme/v1/sme-4x1.hpp"       // 4x1 version
+#include "../sme/v1/sme-2x2.hpp"       // 2x2 version
+#include "../sme/experimental/v1/sme-4x1-zapack.hpp" // 4x1 with ZA-based pack_A
 
 // Arm KleidiAI fp32 micro-kernels (SME2 FMOPA + NEON FMLA). Compiled to a
 // no-op stub when the build is configured without KleidiAI.

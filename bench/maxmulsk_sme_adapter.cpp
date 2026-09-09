@@ -12,16 +12,16 @@
 
 #include <arm_sme.h>
 
-#include "../sme/sme-4x1.hpp"
-#include "../sme/sme-2x2.hpp"
-#include "../sme/sme-1x4.hpp"
-#include "../sme/sme-1x4-sym.hpp"
-#include "../sme/sme-1x4-sym-zainout.hpp"
-#include "../sme/sme-4x1-zapack.hpp"
-#include "../sme/sme-1x4-acc.hpp"
-#include "../sme/sme-1x4-acc-kc.hpp"
-#include "../sme/sme-1x4-acc-kcout.hpp"
-#include "../sme/sme-1x4-acc-fast-kcout.hpp"
+#include "../sme/v1/sme-4x1.hpp"
+#include "../sme/v1/sme-2x2.hpp"
+#include "../sme/v1/sme-1x4.hpp"
+#include "../sme/v1/sme-1x4-sym.hpp"
+#include "../sme/experimental/v1/sme-1x4-sym-zainout.hpp"
+#include "../sme/experimental/v1/sme-4x1-zapack.hpp"
+#include "../sme/v2/sme-1x4-acc.hpp"
+#include "../sme/v2/sme-1x4-acc-kc.hpp"
+#include "../sme/v3/sme-1x4-acc-kcout.hpp"
+#include "../sme/experimental/v3/sme-1x4-acc-fast-kcout.hpp"
 
 namespace MaxMulSK {
 namespace {

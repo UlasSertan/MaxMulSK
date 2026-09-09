@@ -2,7 +2,7 @@
 
 #include <cstddef>
 
-#include "gemm_tuning.hpp"
+#include "../support/gemm_tuning.hpp"
 
 // =============================================================================
 // SME 1x4-Acc-KcOut: 1x4-Acc with an OUTER Kc loop above the M loop.

@@ -22,8 +22,8 @@
 //     beta = 0), so a tile that never gets written shows up instead of passing
 //     silently;
 //   - a checksum of C is printed so the calls cannot be optimised away.
-#include "../sme/sme-1x4-acc-kcout.hpp"
-#include "../sme/gemm_tuning.hpp"
+#include "../sme/v3/sme-1x4-acc-kcout.hpp"
+#include "../sme/support/gemm_tuning.hpp"
 
 #include <dlfcn.h>
 #include <algorithm>

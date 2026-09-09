@@ -7,8 +7,8 @@
 #include "common/utils.hpp"
 #include "neon/neon-8x12.hpp"
 #include "neon/test_neon.hpp"
-#include "sme/sme-4x1.hpp"
-#include "sme/test_sme.hpp"
+#include "sme/v1/sme-4x1.hpp"
+#include "sme/support/test_sme.hpp"
 
 using Clock = std::chrono::high_resolution_clock;
 using Ms    = std::chrono::duration<double, std::milli>;

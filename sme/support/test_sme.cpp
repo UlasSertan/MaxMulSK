@@ -1,11 +1,11 @@
 #include "test_sme.hpp"
-#include "sme-4x1.hpp"
-#include "sme-2x2.hpp"
-#include "sme-1x4.hpp"
-#include "sme-1x4-sym.hpp"
-#include "sme-1x4-sym-zainout.hpp"
-#include "sme-4x1-zapack.hpp"
-#include "../common/utils.hpp"
+#include "../v1/sme-4x1.hpp"
+#include "../v1/sme-2x2.hpp"
+#include "../v1/sme-1x4.hpp"
+#include "../v1/sme-1x4-sym.hpp"
+#include "../experimental/v1/sme-1x4-sym-zainout.hpp"
+#include "../experimental/v1/sme-4x1-zapack.hpp"
+#include "../../common/utils.hpp"
 
 #include <iostream>
 #include <iomanip>

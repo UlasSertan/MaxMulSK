@@ -50,7 +50,7 @@
 #include <cerrno>
 #include <omp.h>
 
-#include "../sme/sme-1x4-sym-zainout.hpp"
+#include "../sme/experimental/v1/sme-1x4-sym-zainout.hpp"
 
 #define N         2048
 #define MAT_ALIGN  128           // M4 cache-line size (sysctl hw.cachelinesize)
