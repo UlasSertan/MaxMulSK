@@ -1,5 +1,13 @@
-// bench/bench_vs_openblas.cpp
-// MaxMulSK vs OpenBLAS, single-thread FP32 GEMM, head to head and nothing else.
+// bench/bench_headline.cpp
+// The headline comparison: MaxMulSK vs Apple Accelerate vs OpenBLAS, single
+// thread, FP32, end to end. Three end-to-end GEMM implementations measured in
+// ONE run, because putting numbers from different runs on one chart is exactly
+// the mistake this repo tries not to make.
+//
+// KleidiAI is deliberately absent. It ships micro-kernels and packing, not a
+// blocked end-to-end GEMM; comparing it here would mean lending it our own
+// blocking, which makes it a component study rather than a baseline. It belongs
+// in the micro-kernel and prepacked experiments (docs/BENCHMARKS.md 0.6-0.9).
 //
 // MaxMulSK is represented by SMEKernels1x4AccKcOut, which is the current
 // flagship: ZA-resident K accumulation, overwriting row-major store, ZA-transpose
@@ -25,6 +33,7 @@
 #include "../sme/v3/sme-1x4-acc-kcout.hpp"
 #include "../sme/support/gemm_tuning.hpp"
 
+#include <Accelerate/Accelerate.h>
 #include <dlfcn.h>
 #include <algorithm>
 #include <chrono>
@@ -33,6 +42,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <random>
 #include <string>
 #include <vector>
@@ -55,8 +65,17 @@ using get_config_fn   = char* (*)();
 using get_corename_fn = char* (*)();
 using set_threads_fn  = void  (*)(int);
 
-cblas_sgemm_fn g_sgemm = nullptr;
+cblas_sgemm_fn g_sgemm = nullptr;   // OpenBLAS, resolved through dlopen
 std::string    g_config, g_corename;
+
+// Accelerate is called directly. Its cblas_sgemm is linked; OpenBLAS is opened
+// RTLD_LOCAL so its identically-named symbol never enters the global namespace
+// and cannot answer this call instead.
+void accelerate_gemm(const float* A, const float* B, float* C,
+                     size_t M, size_t K, size_t N) {
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                (int)M, (int)N, (int)K, 1.0f, A, (int)K, B, (int)N, 0.0f, C, (int)N);
+}
 
 bool load_openblas() {
     const char* env = std::getenv("OPENBLAS_DYLIB");
@@ -123,33 +142,54 @@ constexpr float kSentinel = 12345.0f;
 
 struct Timing { double gflops, spread_pct; };
 
-template <typename F>
-Timing time_it(F&& run, uint64_t flops, double budget_s) {
-    auto t0 = Clock::now();
-    run();
-    const double one = std::chrono::duration<double>(Clock::now() - t0).count();
+// All implementations for one shape are timed together, and the ORDER ROTATES
+// between blocks. Timing them one after another instead would hand a permanent
+// advantage to whoever runs later: the first implementation pulls A and B into
+// cache and the next one inherits them warm. With three implementations and
+// three blocks, rotation puts each of them first exactly once, so that effect
+// averages out instead of accumulating on one name.
+std::vector<Timing> time_all(const std::vector<std::function<void()>>& runs,
+                             uint64_t flops, double budget_s) {
+    const size_t n = runs.size();
+
+    // Calibrate on the slowest implementation so every one of them gets at
+    // least the intended block length.
+    double slowest = 0.0;
+    for (const auto& r : runs) {
+        auto t0 = Clock::now();
+        r();
+        slowest = std::fmax(slowest, std::chrono::duration<double>(Clock::now() - t0).count());
+    }
     // The upper clamp has to be generous: at 256^3 a single call is ~24 us, so
     // a cap of 400 gave ~10 ms blocks and 35-60% spread between them, while the
     // parameter sweep -- same kernel, same shape, 4000 reps -- saw 0.0%. Too few
     // reps is not a small error here, it is the difference between 1019 and
     // 1415 GFLOP/s for the same code.
-    const size_t reps = std::clamp<size_t>((size_t)(budget_s / std::fmax(one, 1e-6)), 3, 20000);
+    const size_t reps = std::clamp<size_t>((size_t)(budget_s / std::fmax(slowest, 1e-6)), 3, 20000);
 
-    std::vector<double> blocks;
-    for (int b = 0; b < 3; b++) {
-        std::vector<double> t;
-        t.reserve(reps);
-        for (size_t r = 0; r < reps; r++) {
-            auto a = Clock::now();
-            run();
-            t.push_back(std::chrono::duration<double, std::milli>(Clock::now() - a).count());
+    std::vector<std::vector<double>> blocks(n);
+    for (size_t b = 0; b < n; b++) {
+        for (size_t i = 0; i < n; i++) {
+            const size_t idx = (i + b) % n;          // rotate who goes first
+            std::vector<double> t;
+            t.reserve(reps);
+            for (size_t r = 0; r < reps; r++) {
+                auto a = Clock::now();
+                runs[idx]();
+                t.push_back(std::chrono::duration<double, std::milli>(Clock::now() - a).count());
+            }
+            blocks[idx].push_back(median(t));
         }
-        blocks.push_back(median(t));
     }
-    const double m = median(blocks);
-    const double lo = *std::min_element(blocks.begin(), blocks.end());
-    const double hi = *std::max_element(blocks.begin(), blocks.end());
-    return { (double)flops / (m * 1e6), 100.0 * (hi - lo) / m };
+
+    std::vector<Timing> out;
+    for (size_t i = 0; i < n; i++) {
+        const double m = median(blocks[i]);
+        const double lo = *std::min_element(blocks[i].begin(), blocks[i].end());
+        const double hi = *std::max_element(blocks[i].begin(), blocks[i].end());
+        out.push_back({ (double)flops / (m * 1e6), 100.0 * (hi - lo) / m });
+    }
+    return out;
 }
 
 }  // namespace
@@ -178,11 +218,12 @@ int main(int argc, char** argv) {
     std::printf("=====================================================================\n");
     std::printf("  MaxMulSK vs OpenBLAS - single-thread FP32 GEMM, Apple M4\n");
     std::printf("=====================================================================\n\n");
-    std::printf("  MaxMulSK   : SMEKernels1x4AccKcOut (blocking from sme/gemm_tuning.hpp)\n");
+    std::printf("  MaxMulSK   : SMEKernels1x4AccKcOut (blocking from sme/support/gemm_tuning.hpp)\n");
+    std::printf("  Accelerate : linked cblas_sgemm (runs on SME - measured, docs/BENCHMARKS.md 0.17)\n");
     std::printf("  OpenBLAS   : %s\n", g_config.empty() ? "(version string unavailable)" : g_config.c_str());
     std::printf("  OB core    : %s\n", g_corename.empty() ? "(unknown)" : g_corename.c_str());
-    std::printf("  Threads    : 1 (openblas_set_num_threads(1), plus OPENBLAS_NUM_THREADS)\n");
-    std::printf("  Semantics  : both compute C = A*B (OpenBLAS beta = 0)\n\n");
+    std::printf("  Threads    : 1 (openblas_set_num_threads(1), VECLIB_MAXIMUM_THREADS, OPENBLAS_NUM_THREADS)\n");
+    std::printf("  Semantics  : all three compute C = A*B (beta = 0)\n\n");
 
     std::mt19937 rng(20260909);
     std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
@@ -206,22 +247,23 @@ int main(int argc, char** argv) {
         for (auto& v : B) v = dist(rng);
         for (int i = 0; i < 3; i++) {
             SMEKernels1x4AccKcOut::run_multiplication(A.data(), B.data(), C.data(), w, w, w);
+            accelerate_gemm(A.data(), B.data(), C.data(), w, w, w);
             openblas_gemm(A.data(), B.data(), C.data(), w, w, w);
         }
     }
 
-    std::printf("%-8s %-18s %11s %8s   %11s %8s   %9s  %s\n",
-                "group", "M x K x N", "MaxMulSK", "spread", "OpenBLAS", "spread",
-                "ratio", "max|diff|");
-    std::printf("%s\n", std::string(96, '-').c_str());
+    std::printf("%-8s %-16s %10s %7s %10s %7s %10s %7s   %8s %8s\n",
+                "group", "M x K x N", "MaxMulSK", "sp", "Accelerate", "sp",
+                "OpenBLAS", "sp", "vs Accel", "vs OB");
+    std::printf("%s\n", std::string(104, '-').c_str());
 
     double sink = 0.0;
     for (const Shape& s : kShapes) {
         if (skipped(s.M, s.K, s.N)) {
             char sb[32];
             std::snprintf(sb, sizeof sb, "%zux%zux%zu", s.M, s.K, s.N);
-            std::printf("%-8s %-18s %11s %8s   %11s %8s   %9s  (MAXMULSK_SKIP)\n",
-                        s.group, sb, "-", "-", "-", "-", "-");
+            std::printf("%-8s %-16s %10s %7s %10s %7s %10s %7s   %8s %8s\n",
+                        s.group, sb, "-", "-", "-", "-", "-", "-", "skipped", "");
             continue;
         }
         const uint64_t flops = 2ull * s.M * s.N * s.K;
@@ -230,32 +272,37 @@ int main(int argc, char** argv) {
         for (auto& v : A) v = dist(rng);
         for (auto& v : B) v = dist(rng);
         std::vector<float> C_ours(s.M * s.N, kSentinel);
+        std::vector<float> C_acc (s.M * s.N, kSentinel);
         std::vector<float> C_ob  (s.M * s.N, kSentinel);
 
         auto run_ours = [&] {
             SMEKernels1x4AccKcOut::run_multiplication(A.data(), B.data(), C_ours.data(),
                                                       s.M, s.K, s.N);
         };
-        auto run_ob = [&] { openblas_gemm(A.data(), B.data(), C_ob.data(), s.M, s.K, s.N); };
+        auto run_acc = [&] { accelerate_gemm(A.data(), B.data(), C_acc.data(), s.M, s.K, s.N); };
+        auto run_ob  = [&] { openblas_gemm (A.data(), B.data(), C_ob.data(),  s.M, s.K, s.N); };
 
         run_ours();
+        run_acc();
         run_ob();
 
+        // Correctness is checked against Accelerate, which is the most mature of
+        // the three. C is prefilled with a sentinel because all three OVERWRITE
+        // C, so a tile nobody wrote shows up instead of passing silently.
         double max_abs = 0.0, num = 0.0, den = 0.0;
         size_t unwritten = 0;
         for (size_t i = 0; i < C_ours.size(); i++) {
-            if (C_ours[i] == kSentinel || C_ob[i] == kSentinel) unwritten++;
-            const double d = (double)C_ours[i] - (double)C_ob[i];
+            if (C_ours[i] == kSentinel || C_acc[i] == kSentinel || C_ob[i] == kSentinel) unwritten++;
+            const double d = (double)C_ours[i] - (double)C_acc[i];
             max_abs = std::fmax(max_abs, std::fabs(d));
             num += d * d;
-            den += (double)C_ob[i] * (double)C_ob[i];
+            den += (double)C_acc[i] * (double)C_acc[i];
         }
         const double rel = den > 0.0 ? std::sqrt(num / den) : 0.0;
 
-        const double budget = 1.0;
-        const Timing to = time_it(run_ours, flops, budget);
-        const Timing tb = time_it(run_ob,   flops, budget);
-        sink += (double)C_ours[0] + (double)C_ob[s.M * s.N - 1];
+        const std::vector<Timing> t = time_all({run_ours, run_acc, run_ob}, flops, 1.0);
+        const Timing to = t[0], ta = t[1], tb = t[2];
+        sink += (double)C_ours[0] + (double)C_acc[0] + (double)C_ob[s.M * s.N - 1];
 
         const auto blk = MaxMulSK::tuning::select(s.M, s.K, s.N);
         char blkbuf[48];
@@ -264,14 +311,17 @@ int main(int argc, char** argv) {
         char shapebuf[32];
         std::snprintf(shapebuf, sizeof shapebuf, "%zux%zux%zu", s.M, s.K, s.N);
 
-        std::printf("%-8s %-18s %11.1f %7.1f%%   %11.1f %7.1f%%   %8.2fx  %.2e%s\n",
+        std::printf("%-8s %-16s %10.1f %6.1f%% %10.1f %6.1f%% %10.1f %6.1f%%   %7.2fx %7.2fx%s\n",
                     s.group, shapebuf, to.gflops, to.spread_pct,
-                    tb.gflops, tb.spread_pct, to.gflops / tb.gflops, max_abs,
+                    ta.gflops, ta.spread_pct, tb.gflops, tb.spread_pct,
+                    to.gflops / ta.gflops, to.gflops / tb.gflops,
                     unwritten ? "  UNWRITTEN!" : "");
 
         if (csv) {
             std::fprintf(csv, "%s,%zu,%zu,%zu,MaxMulSK,%.2f,%.2f,%s,%.6e,%.6e\n",
                          s.group, s.M, s.K, s.N, to.gflops, to.spread_pct, blkbuf, max_abs, rel);
+            std::fprintf(csv, "%s,%zu,%zu,%zu,Accelerate,%.2f,%.2f,,,\n",
+                         s.group, s.M, s.K, s.N, ta.gflops, ta.spread_pct);
             std::fprintf(csv, "%s,%zu,%zu,%zu,OpenBLAS,%.2f,%.2f,,,\n",
                          s.group, s.M, s.K, s.N, tb.gflops, tb.spread_pct);
             std::fflush(csv);   // survive a crash in the library under test

@@ -118,7 +118,7 @@ Implemented in `sme/sme-1x4.{hpp,cpp}` (renamed from `SME-GEMMKernelsExperimenta
 **Fix applied:** `Nc_cache = 1020` (85 × 12). Every `current_Nc` is now a multiple of 12 (`N_aligned` and `j` both are), so panels never straddle blocks. Zero hot-path cost — cache footprint essentially unchanged; NEON still ~122 GFLOPS @ 2048³. Verified vs scalar at 128×1100×128, 512×2048×512, 1067³, 513×1033×517: MaxDiff ≈ 0.
 
 ### ~~Accumulator precision at ≥2048³ (MaxDiff up to ~100)~~ — NOT A BUG, CLOSED
-Measured against float64 ground truth (`cblas_dgemm`), fp32 accumulation error at 4096³ is: Accelerate 0.000348 max, our SME 4x1 0.000209, our NEON 0.000115 — **our kernels are more accurate than AMX**. The reported MaxDiff ~100 was entirely BUG-NEON-2X corrupting `bench_compare`'s NEON-vs-Accelerate diff (doubled columns at |C| ~ 100 magnitudes). Pairwise summation is unnecessary; item dropped from the roadmap.
+Measured against float64 ground truth (`cblas_dgemm`), fp32 accumulation error at 4096³ is: Accelerate 0.000348 max, our SME 4x1 0.000209, our NEON 0.000115 — **our kernels are more accurate than Accelerate**. The reported MaxDiff ~100 was entirely BUG-NEON-2X corrupting `bench_compare`'s NEON-vs-Accelerate diff (doubled columns at |C| ~ 100 magnitudes). Pairwise summation is unnecessary; item dropped from the roadmap.
 
 ---
 
@@ -133,7 +133,7 @@ On M4 macOS Sonoma+, `powermetrics --samplers cpu_power` no longer prints the `P
 **Confirmed again 2026-09-06** in `bench/energy_bench.sh`, which has its own parser: the captures contain `E-Cluster Online` / HW-frequency / residency lines but no per-cluster *power* line, so both cluster columns read 0.0 W across all 28 measured points. The J/GFLOP figures in docs/BENCHMARKS.md §0.15 come from the combined figure and are unaffected.
 
 ### MINOR: OpenBLAS PMU counter undercount
-`scripts/profile.sh oblas` reports only ~650M instructions for a 3-second run at 2048³ × 100 iters (IPC ≈ 0.05 — implausible). Suspected: AMX-internal compute path doesn't count toward `INST_ALL`, OR the trace template loses events from dlopen'd dylib symbol attribution. Comparison against AMX/NEON paths via this counter is unreliable for OpenBLAS until investigated.
+`scripts/profile.sh oblas` reports only ~650M instructions for a 3-second run at 2048³ × 100 iters (IPC ≈ 0.05 — implausible). Suspected: the trace template loses events from dlopen'd dylib symbol attribution. *(The original guess here was "AMX-internal ops not counted", which never held up — OpenBLAS cannot use AMX, it is undocumented and Apple-private. Dropped 2026-09-09 alongside §0.17.)* Comparison across libraries via this counter is unreliable for OpenBLAS until investigated.
 
 
 ## Hypothesis (2026-04-29)

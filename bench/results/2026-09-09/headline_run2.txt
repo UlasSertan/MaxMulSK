@@ -1,0 +1,31 @@
+=====================================================================
+  MaxMulSK vs OpenBLAS - single-thread FP32 GEMM, Apple M4
+=====================================================================
+
+  MaxMulSK   : SMEKernels1x4AccKcOut (blocking from sme/support/gemm_tuning.hpp)
+  Accelerate : linked cblas_sgemm (runs on SME - measured, docs/BENCHMARKS.md 0.17)
+  OpenBLAS   : OpenBLAS 0.3.34.dev NO_LAPACK NO_LAPACKE DYNAMIC_ARCH NO_AFFINITY vortexm4 SINGLE_THREADED
+  OB core    : vortexm4
+  Threads    : 1 (openblas_set_num_threads(1), VECLIB_MAXIMUM_THREADS, OPENBLAS_NUM_THREADS)
+  Semantics  : all three compute C = A*B (beta = 0)
+
+group    M x K x N          MaxMulSK      sp Accelerate      sp   OpenBLAS      sp   vs Accel    vs OB
+--------------------------------------------------------------------------------------------------------
+square   256x256x256          1393.3    0.3%     1677.7    5.6%     1326.7    0.0%      0.83x    1.05x
+square   512x512x512          1655.3    0.2%     1776.2    0.1%     1641.4    0.0%      0.93x    1.01x
+square   1024x1024x1024       1783.8    0.6%     1690.3    0.1%     1546.4    1.6%      1.06x    1.15x
+square   2048x2048x2048       1622.5    0.1%     1667.5    2.2%     1311.2    0.2%      0.97x    1.24x
+square   4096x4096x4096       1638.2    0.2%     1598.3    0.1%     1246.3    0.1%      1.02x    1.31x
+llm      64x8192x512           919.9    0.4%      964.3    0.2%      680.8    1.3%      0.95x    1.35x
+llm      64x16384x512          811.2    0.1%      857.1    0.2%      476.3    0.2%      0.95x    1.70x
+llm      64x32768x512          810.9    0.2%      857.5    0.1%      482.2    0.4%      0.95x    1.68x
+llm      128x8192x512         1112.0    2.9%     1161.2    0.9%      625.4    8.9%      0.96x    1.78x
+llm      128x16384x512        1047.0    0.1%     1115.6    1.5%      468.5    0.8%      0.94x    2.23x
+llm      128x32768x512        1052.9    0.1%     1126.7    1.1%      491.1    0.3%      0.93x    2.14x
+
+  ratio > 1 means MaxMulSK is ahead. GFLOP/s from medians of three
+  timing blocks; spread is (max-min)/median across those blocks.
+  This machine has no thread pinning: treat differences under ~5% as noise.
+
+  checksum 1.525999e+02
+  -> bench/results/2026-09-09/headline_run2.csv

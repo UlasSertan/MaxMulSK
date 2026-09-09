@@ -54,7 +54,7 @@ All three outstanding correctness bugs were fixed this session with **zero hot-p
 - **BUG-4x1-SMALL-M** — scratch-buffer edge-tile fallback added to 4×1 and ZAPack drivers (1×4 family already had it; harness skip-list was stale). All six kernels now pass the full correctness list (16³, 32³, 20×35×41, 67³, …).
 - **BUG-NEON-2X** — `Nc_cache` 1024 → 1020 (85×12). The old value violated the multiple-of-12 invariant, making the last 12-wide panel of each cache block double-accumulate 8 columns into the next block. MaxDiff at the failing shapes: was 12–100, now ≤ 0.0004 (pure fp32 rounding).
 - **BUG-ZAPACK-WRONG** — pack_A layout collision: panel index `p = m/SVL` wasn't wrapped per 4-panel group, so with `M_tile=128` panels 4–7 overwrote k+1's packed data. Fixed with `(m/SVL) % 4` + per-group base offset. ZAPack re-enabled everywhere.
-- **Accumulator precision** — closed as **not a bug**. Measured against fp64 ground truth (`cblas_dgemm`) at 4096³: Accelerate maxErr 0.000348, our SME 4×1 0.000209, our NEON 0.000115 — our kernels are *more accurate* than AMX. The historical "MaxDiff ~100" was BUG-NEON-2X corrupting the comparison baseline.
+- **Accumulator precision** — closed as **not a bug**. Measured against fp64 ground truth (`cblas_dgemm`) at 4096³: Accelerate maxErr 0.000348, our SME 4×1 0.000209, our NEON 0.000115 — our kernels are *more accurate* than Accelerate. The historical "MaxDiff ~100" was BUG-NEON-2X corrupting the comparison baseline.
 
 ### 0.1 Side-by-side kernel comparison (interleaved, single-thread, 2026-07-25)
 
@@ -107,13 +107,13 @@ Size (MxKxN)          Tag                  NEON GF   SME 4x1    4x1 ZP   SME 2x2
 - **SME 4×1: 1231 @ 2048³, ~1200 @ 4096³** — ~75% of Accelerate at 4096³ (Accelerate itself measured hotter this run: 1594 @ 4096³, 1837 peak at the aligned 1024 case).
 - **NEON at 121–123 across every large shape** — including the previously-broken `N > Nc_cache` shapes, at full speed. `65³` jumped from 13 to 76 GFLOPS (small sizes previously took the scalar edge path much harder; the wider correctness surface is also friendlier now).
 - **Small sizes (≤32³) remain Accelerate's domain** — our SME kernels pay pack + streaming-mode entry per call; that's a known non-goal.
-- Python side (same session): NumPy 107–112 (vecLib NEON path), PyTorch ~1500 (AMX) — both unchanged from §2.2 within noise.
+- Python side (same session): NumPy 107–112 (vecLib NEON path), PyTorch ~1500 (vecLib fast path; ISA unverified) — both unchanged from §2.2 within noise.
 
 ### 0.3 fp32 accumulation error vs fp64 ground truth (2026-07-25)
 
 | | 2048³ maxErr | 2048³ rmsErr | 4096³ maxErr | 4096³ rmsErr |
 |---|---:|---:|---:|---:|
-| Accelerate (AMX) | 0.000159 | 0.000012 | 0.000348 | 0.000024 |
+| Accelerate | 0.000159 | 0.000012 | 0.000348 | 0.000024 |
 | **Our SME 4×1** | 0.000159 | 0.000012 | **0.000209** | 0.000017 |
 | **Our NEON** | **0.000093** | 0.000009 | **0.000115** | 0.000012 |
 
@@ -2484,6 +2484,68 @@ Two things kept stock OpenBLAS off its own fast path. Neither involves MaxMulSK.
 
 ---
 
+### 0.17 What Accelerate actually runs on M4 — SME, not AMX (2026-09-09)
+
+**Measured:** 2026-09-09 · **CURRENT** · **OVERTURNS a claim this repo carried
+since 2026-04.**
+
+Every earlier document here asserted that Accelerate reaches its speed through
+AMX, Apple's undocumented matrix coprocessor, and concluded that the gap to it
+was therefore *hardware* and not something we could close. The evidence below
+does not support that. Runtime PC sampling **strongly indicates Accelerate's hot
+`cblas_sgemm` path uses SME — the same unit our kernels use.**
+
+This is statistical sampling, not disassembly of the dispatch logic, so it is
+stated as strong evidence rather than proof. It is one-sided evidence, though:
+0 AMX-dominated samples out of 583 at 4096³ leaves little room for an AMX path
+that matters.
+
+#### How it was decided
+
+A static scan is not enough, and it is worth saying why: `libBLAS.dylib`
+contains **both**. Walking its mapped `__text` finds 452 `smstart` / 372
+`smstop` / 1704 `fmopa` *and* 158,398 instructions in AMX's reserved encoding
+space (`0x00201xxx`). Presence proves nothing about which path a given call
+takes.
+
+So the hot path was sampled instead: a `SIGPROF` timer captures the program
+counter while `cblas_sgemm` runs, and each sample is classified by what
+surrounds it (±32 instructions), AMX encodings against SME ones.
+
+| Shape | samples in libBLAS | AMX-dominated | SME-dominated |
+|---|---:|---:|---:|
+| 256³ | 1 | 0 | 1 |
+| 1024³ | 9 | 0 | 8 |
+| 2048³ | 83 | **0** | 71 |
+| 4096³ | 583 | **0** | 495 |
+
+Not one AMX-dominated sample in 583 at 4096³. The remainder sit in packing and
+copy code that contains neither.
+
+The detector was validated twice before its verdict was trusted: our own binary
+scans as SME with zero AMX (12 `smstart`, 36 `fmopa`), and running the same
+PC-sampling against `SMEKernels1x4AccKcOut` also reports SME.
+
+#### What this changes
+
+- **We are very likely not on different hardware.** The tie at 1024³ looks like
+  one reached with the same instruction set, not a student's SME against Apple's
+  private coprocessor.
+- **The gap was not simply hardware.** "The remaining ~1.5× gap to Accelerate
+  is hardware... not an algorithmic limitation" (COMPARISON.md, 2026-04) pointed
+  in the wrong direction. A major part of the gap turned out to be per-call
+  fixed cost, and §0.9-A closed most of it by taking one micro-kernel invocation
+  from 357 ns to 52 ns. How much of the remainder is hardware is not something
+  this project has established.
+- **PyTorch is NOT covered by this.** Its backend was assumed to be AMX from the
+  same era and has not been measured. Claims about PyTorch remain unverified and
+  are marked as such rather than quietly corrected.
+
+Probe: `scratchpad`-only, not committed; the method is described above in full
+so it can be rebuilt.
+
+---
+
 ### 0.4 4×1 timing breakdown (fresh)
 
 ```
@@ -2548,25 +2610,25 @@ Measurement tool: `powermetrics --samplers cpu_power,thermal`, 100 ms sampling i
 
 | Library | Backend | GFLOPS | Runtime (s) | Avg power (W) | Energy (J) | J / GFLOP | GFLOPS / W |
 |---|---|---:|---:|---:|---:|---:|---:|
-| Accelerate | AMX | **1621.9** | 1.11 | 8.53 | 9.44 | **0.0055** | **182.0** |
-| PyTorch 2.10 | AMX | 1487.9 | 1.71 | 7.70 | 13.13 | 0.0076 | 130.9 |
+| Accelerate | SME (§0.17) | **1621.9** | 1.11 | 8.53 | 9.44 | **0.0055** | **182.0** |
+| PyTorch 2.10 | vecLib, unverified | 1487.9 | 1.71 | 7.70 | 13.13 | 0.0076 | 130.9 |
 | Our SME 4×1 | SME/ZA | 1173.7 | 1.84 | 6.07 | 11.18 | 0.0065 | 153.6 |
 | OpenBLAS 0.3.32 | NEON | 617.9 | 2.86 | 5.86 | 16.73 | 0.0097 | 102.7 |
 | NumPy 2.1 | vecLib NEON | 112.8 | 15.46 | 7.16 | 110.66 | 0.0644 | 15.5 |
 
 ### 2.3 Findings
 
-- **Our SME 4×1 beats PyTorch on energy efficiency** (0.0065 vs 0.0076 J/GFLOP, 154 vs 131 GFLOPS/W) despite running slower in wall-clock terms. PyTorch reaches AMX peak performance but its dispatcher overhead at 2048³ inflates total energy.
-- **Accelerate is the energy-efficiency ceiling** at 0.0055 J/GFLOP / 182 GFLOPS/W. The AMX coprocessor finishes the work fastest *and* draws power roughly proportional to the work it's doing — short integral.
+- **Our SME 4×1 beats PyTorch on energy efficiency** (0.0065 vs 0.0076 J/GFLOP, 154 vs 131 GFLOPS/W) despite running slower in wall-clock terms. PyTorch reaches near-peak throughput but its dispatcher overhead at 2048³ inflates total energy.
+- **Accelerate is the energy-efficiency ceiling** at 0.0055 J/GFLOP / 182 GFLOPS/W. It finishes the work fastest *and* draws power roughly proportional to the work it's doing — short integral. *(The "AMX coprocessor" this line originally credited turned out to be SME — §0.17.)*
 - **Our SME 4×1 draws ~30% less power than Accelerate** (6.07 W vs 8.53 W) while still being 2.6× more efficient than the equivalently-power-budgeted OpenBLAS — when work-per-watt is the constraint (battery, fanless), SME is competitive.
-- **NumPy on macOS is shockingly inefficient** at 0.064 J/GFLOP — ~10× worse than our SME 4×1 and ~12× worse than Accelerate. NumPy's `np.matmul` for float32 takes the vecLib NEON sgemm path, not the AMX path that Accelerate's direct `cblas_sgemm` reaches. PyTorch dispatches differently and *does* get AMX.
-- **OpenBLAS sits in the awkward middle:** lower wall-clock power (5.9 W) than the AMX libraries but ~2× slower than our SME, so the energy integral comes out worse (16.7 J vs 11.2 J for the same work). It pays the NEON-tier compute cost without any of SME's accumulator savings.
+- **NumPy on macOS is shockingly inefficient** at 0.064 J/GFLOP — ~10× worse than our SME 4×1 and ~12× worse than Accelerate. NumPy's `np.matmul` for float32 takes the vecLib NEON sgemm path, not the fast path that Accelerate's direct `cblas_sgemm` reaches. PyTorch dispatches differently and does reach it. *(That fast path is SME, not AMX — §0.17.)*
+- **OpenBLAS sits in the awkward middle:** lower wall-clock power (5.9 W) than Accelerate and PyTorch but ~2× slower than our SME, so the energy integral comes out worse (16.7 J vs 11.2 J for the same work). It pays the NEON-tier compute cost without any of SME's accumulator savings.
 - **No thermal pressure** in any of these runs — all 100-iteration sweeps fit inside the M4's sustained budget, so none of the numbers reflect throttling. Longer or multi-kernel pipelines may differ.
 
 ### 2.4 Caveats
 
 - `scripts/profile_power.sh` Combined power on M4 macOS Sonoma+ aggregates CPU + GPU + ANE. The script's P-cluster / E-cluster regex matches an older powermetrics format and currently reports 0.0 W for those sub-totals (TODO MINOR). Combined is the figure used above.
-- 100-iteration runs at 2048³ are short (1–2 s) on the AMX path — power averages may include 1–2 sample windows of startup/finish idle. The sense of the comparisons (4×1 < PyTorch < Accelerate efficiency) is robust; absolute J figures have a few-percent measurement noise.
+- 100-iteration runs at 2048³ are short (1–2 s) on the fast path — power averages may include 1–2 sample windows of startup/finish idle. The sense of the comparisons (4×1 < PyTorch < Accelerate efficiency) is robust; absolute J figures have a few-percent measurement noise.
 
 ---
 
@@ -2770,11 +2832,11 @@ Size (MxKxN)         Tag             NEON   SME 4x1  ZAPack   SME 2x2   Accel   
 
 ### Cross-library findings (2026-04-26)
 
-- **SME 4×1 reaches ~78% of Accelerate (AMX) at 4096³** (1183 / 1523). Up from the previous ~67% reference point; both numbers shifted (4×1 dropped from 1213, Accel dropped from 1813 → likely measurement variance / different thermal state).
-- **SME 4×1 beats OpenBLAS by ~10× at large sizes** (1183 vs 113 at 4096³). OpenBLAS does not take the AMX path and degrades sharply on non-aligned sizes ≥ 2048³.
+- **SME 4×1 reaches ~78% of Accelerate at 4096³** (1183 / 1523). Up from the previous ~67% reference point; both numbers shifted (4×1 dropped from 1213, Accel dropped from 1813 → likely measurement variance / different thermal state).
+- **SME 4×1 beats OpenBLAS by ~10× at large sizes** (1183 vs 113 at 4096³). OpenBLAS degrades sharply at ≥ 2048³. *(Cause found 2026-09-09: a stale direct-path threshold, not alignment — §0.16.)*
 - **SME 2×2 wins the L3-fitting band** (1024³–2048³). Its 32×32 output tile interacts better with M4's L1/L2 hierarchy at those sizes.
 - **ZAPack matches 4×1 at L3 sizes** (1188 at 1024³ vs 4×1's 1026 — actually *beats* it). *(2026-07-25: bug fixed; the win is confirmed real — see §0.1.)*
-- **NEON kernel sits at NEON ceiling** (~120 GFLOPS) — competitive with NumPy's vecLib path (~110) but dominated by everything that uses AMX.
+- **NEON kernel sits at NEON ceiling** (~120 GFLOPS) — competitive with NumPy's vecLib path (~110) but dominated by everything on the matrix-extension path.
 - **Accumulator precision** *(2026-07-25: closed as not-a-bug — the ~100 MaxDiff was BUG-NEON-2X; fp64-truth measurement in §0.3 shows our kernels are more accurate than Accelerate.)*
 
 ---
@@ -2838,15 +2900,19 @@ Measured with Instruments (CPU Counters template: `L1D_CACHE_MISS_LD`, `L1D_CACH
 
 | Library | GFLOPS | INST_ALL (B) | L1D miss / 1M instr | Notes |
 |---|---:|---:|---:|---|
-| Accelerate (AMX) | 1534.3 | 9.50 | 22,211 | Highest miss/instr — AMX uses its own memory path; L1D counters reflect host loads, not coprocessor compute. |
-| PyTorch 2.10 (AMX) | 1392.4 | 14.83 | 21,583 | Same backend as Accelerate; extra `INST_ALL` is dispatcher / Python interop overhead. |
-| OpenBLAS 0.3.32 (NEON) | 572.0 | **0.65** | 2,019 | INST_ALL implausibly low (IPC ≈ 0.05) — suspect under-attribution from dlopen'd dylib symbol path or AMX-internal ops not counted. **Use this row qualitatively only.** TODO MINOR. |
+| Accelerate | 1534.3 | 9.50 | 22,211 | Highest miss/instr. The AMX explanation once given for this is void (§0.17); unexplained. |
+| PyTorch 2.10 | 1392.4 | 14.83 | 21,583 | Same backend as Accelerate; extra `INST_ALL` is dispatcher / Python interop overhead. |
+| OpenBLAS 0.3.32 | 572.0 | **0.65** | 2,019 | INST_ALL implausibly low (IPC ≈ 0.05) — suspect under-attribution from the dlopen'd dylib symbol path. **Use this row qualitatively only.** TODO MINOR. |
 | NumPy 2.1 (vecLib NEON) | 88.6 | 12.37 | **51,692** | Highest miss rate by a wide margin; vecLib's sgemm path is not packed/blocked the way our NEON kernel is. |
 
 ### 10.0.2 Cross-comparison takeaways
 
-- **L1D miss rate is the cleanest separator**: our SME kernels (220–820 misses/M-instr) are ~30–250× cleaner than the AMX libraries (22,000) and ~60–235× cleaner than NumPy (52,000). This reflects our packing strategy — packed A/B buffers stay hot in L1 throughout the kernel.
-- **AMX backends rack up host L1D misses** because the coprocessor needs to be fed from memory but its compute work doesn't show up in `INST_ALL`. The high miss/instr ratio for Accel/PyTorch is mostly a denominator effect, not a real cache-thrashing signal.
+- **L1D miss rate is the cleanest separator**: our SME kernels (220–820 misses/M-instr) are ~30–250× cleaner than Accelerate and PyTorch (22,000) and ~60–235× cleaner than NumPy (52,000). This reflects our packing strategy — packed A/B buffers stay hot in L1 throughout the kernel.
+- **Accelerate and PyTorch rack up host L1D misses** with a high miss/instr
+  ratio. The explanation originally given here — "the coprocessor needs to be fed
+  from memory but its compute work doesn't show up in `INST_ALL`" — assumed AMX,
+  and §0.17 shows Accelerate runs on SME. The *observation* stands; the mechanism
+  behind it is now unexplained and would need re-profiling.
 - **NumPy is genuinely cache-thrashing** — 51,692 misses/M-instr at low GFLOPS means it's losing to memory. Confirms the energy result (110 J / 1.7 TFLOPs — 10× our SME).
 - **OpenBLAS counter mystery** — needs investigation before its INST_ALL number is comparable.
 
@@ -2894,7 +2960,7 @@ To test the `1x4` IPC collapse hypothesis, the experimental kernel was rewritten
 
 There is no middle ground: x4 loads starve the pipeline of latency-hiding filler (cratering IPC), x1 loads fix the pipeline at the cost of a 2.5× instruction tax. 4×1's natural geometry (4 A-loads + 1 B-load + 4 FMOPAs per k-step) is the only pattern that produces a scheduling-friendly load/FMOPA mix *without* inflating the instruction count — the `A` loads act as filler "for free". The x1-loads kernel is kept in the tree as a reproducible demonstration of the tradeoff, not as a forward path.
 
-Scope of the claim: M4 with SVL=16, single-thread, 2048³, LLVM/Clang `-O3 -mcpu=apple-m4`. On different silicon (AMX, different SVE width, different FMOPA latency), the asymmetry could shift or flip.
+Scope of the claim: M4 with SVL=16, single-thread, 2048³, LLVM/Clang `-O3 -mcpu=apple-m4`. On different silicon (different SVE width, different FMOPA latency), the asymmetry could shift or flip.
 
 ### Lessons learned
 
@@ -2916,5 +2982,12 @@ These are back-of-envelope thoughts for planning future work, **not measurements
 - **Kernel-alone ceiling (if packing overhead vanished):** ≈ 1 615 GFLOPS, extrapolated from current pack% (~20 % of total time at 2048³ per §8 timing breakdown).
 - **Practical ceiling on the SME path:** ≈ 1 600–1 700 GFLOPS. Getting there likely requires `__arm_inout("za")` to skip the per-call ZA zero + load-back, a leaner pack_A, and better FMOPA scheduling (address the 1×4 IPC finding above).
 - **AMX-class (≥ 1 800 GFLOPS)** probably out of reach from SME alone. Accelerate's ~1 813 GFLOPS at 4096³ uses the AMX coprocessor — a different silicon block — so no software on the SME path is expected to match it.
+
+  > **Both premises wrong, corrected 2026-09-09.** Accelerate runs on SME, not
+  > AMX (§0.17), so there is no "different silicon block" between us. And the
+  > ceiling was reached anyway: 1773 vs Accelerate's 1786 GFLOP/s at 1024³
+  > (§0.14). This bullet talked us out of an optimisation that turned out to be
+  > available — worth remembering the next time a gap gets attributed to
+  > hardware without measuring.
 
 Current single-thread peak is ~1 308 GFLOPS @ 4096³ (1×4-sym, 2026-07-25 — see §0.1), leaving roughly 20–30 % headroom against these estimates. Worth chasing, but not infinite.

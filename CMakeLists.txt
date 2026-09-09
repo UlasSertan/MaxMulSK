@@ -329,13 +329,15 @@ if(MAXMULSK_WITH_KLEIDIAI)
     # let the loader decide which one answers, which is exactly the ambiguity
     # this benchmark exists to avoid. Nothing here needs OpenBLAS at build time.
     # ---------------------------------------------------------------------
-    add_executable(bench_vs_openblas
-            bench/bench_vs_openblas.cpp
+    add_executable(bench_headline
+            bench/bench_headline.cpp
             sme/v3/sme-1x4-acc-kcout.cpp
             sme/support/gemm_tuning.cpp
     )
-    target_compile_options(bench_vs_openblas PRIVATE -O3 -Wall -Wextra -mcpu=apple-m4)
-    target_include_directories(bench_vs_openblas PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_options(bench_headline PRIVATE -O3 -Wall -Wextra -mcpu=apple-m4)
+    target_link_libraries(bench_headline PRIVATE "-framework Accelerate")
+    target_compile_definitions(bench_headline PRIVATE ACCELERATE_NEW_LAPACK)
+    target_include_directories(bench_headline PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
 
 # =============================================================================

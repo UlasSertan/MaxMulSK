@@ -91,7 +91,14 @@ Size (MxKxN)          Tag                      NP ms   NP GFLOPS       PT ms   P
 
 ## Analysis
 
-### Tier 1 — AMX: Accelerate and PyTorch (~1500–1813 GFLOPS)
+### Tier 1 — Accelerate and PyTorch (~1500–1813 GFLOPS)
+
+> **Wrong, corrected 2026-09-09 (BENCHMARKS.md §0.17).** This whole tier was
+> named after AMX on the strength of nothing but speed. Sampling the program
+> counter inside `cblas_sgemm` found Accelerate running on **SME**, the same
+> unit our kernels use: 0 AMX-dominated samples out of 583 at 4096³. PyTorch
+> was never measured either way. The AMX reasoning below is left as written
+> because it drove real decisions for months; it should not be believed.
 
 Apple Accelerate's `cblas_sgemm` and PyTorch both land in the 1500–1813 GFLOPS range at large sizes. This is only possible because both are using **AMX (Apple Matrix eXtensions)**, a dedicated matrix multiply coprocessor built into every M-series chip. AMX is not part of the public ARM ISA; Apple uses it internally through Accelerate and does not document the instruction encoding.
 
@@ -115,6 +122,11 @@ The SME kernels represent a dramatic step up from NEON, reaching **67% of Accele
 
 The remaining ~1.5× gap to Accelerate is hardware: AMX is a dedicated coprocessor with higher throughput than SME's outer-product path. This is not an algorithmic limitation.
 
+> **Exactly backwards, corrected 2026-09-09.** Same hardware (§0.17), and the
+> gap *was* algorithmic: it was per-call fixed cost. §0.9-A took one
+> micro-kernel invocation from 357 ns to 52 ns and closed it — 1773 vs
+> Accelerate's 1786 GFLOP/s at 1024³ (§0.14).
+
 ### Tier 3 — Our NEON Kernel (~99–124 GFLOPS)
 
 Our NEON kernel hits **122–124 GFLOPS** at large square matrices, within 2% of the M4's theoretical single-core NEON ceiling (~125 GFLOPS). Performance is highly consistent across all sizes — tail cases cost less than 3 GFLOPS.
@@ -135,8 +147,8 @@ At sizes ≥ 2048, MaxDiff values between our SME kernels and Accelerate grow la
 
 | Library | Backend | Peak GFLOPS | Edge-case GFLOPS | Consistency |
 |---|---|---|---|---|
-| Accelerate | AMX | ~1813 | ~463–1340 | High |
-| PyTorch | AMX | ~1815 | ~222–1450 | High |
+| Accelerate | SME (§0.17) | ~1813 | ~463–1340 | High |
+| PyTorch | vecLib, unverified | ~1815 | ~222–1450 | High |
 | **Our SME 4×1** | SME/ZA | **~1213** | **~502–1175** | **High** |
 | **Our SME 2×2** | SME/ZA | **~1083** | **~453–1062** | **High** |
 | OpenBLAS 0.3.32 | NEON (+ suspected AMX on aligned) | ~1647 (aligned) / ~105 (non-aligned) | **Low** | Very low |
@@ -148,7 +160,7 @@ At sizes ≥ 2048, MaxDiff values between our SME kernels and Accelerate grow la
 
 ## Key Takeaways
 
-1. **SME closes 67% of the gap to AMX.** Our SME 4×1 kernel reaches ~1213 GFLOPS vs Accelerate's ~1813. The remaining ~1.5× gap is hardware — AMX is a dedicated coprocessor with higher raw throughput than SME's outer-product instructions.
+1. **SME closes 67% of the gap to AMX.** Our SME 4×1 kernel reaches ~1213 GFLOPS vs Accelerate's ~1813. The remaining ~1.5× gap is hardware — AMX is a dedicated coprocessor with higher raw throughput than SME's outer-product instructions. *(Wrong on both counts — see §0.17 and the note in Tier 1. Same hardware, and the gap was fixed cost, since closed.)*
 
 2. **SME is ~10× faster than NEON on the same core.** This confirms that the ZA accumulator is a fundamentally different compute tier, not just "wider SIMD." The 4×1 kernel at 4096³ processes more FLOPS per second than NEON + OpenMP at 10 threads.
 

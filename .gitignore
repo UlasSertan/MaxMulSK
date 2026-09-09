@@ -71,3 +71,9 @@ CLAUDE.md
 !GemmTemplate.tracetemplate
 *.trace
 traces/
+
+# ============================================================
+# Python bytecode (bench/*.py are run directly, never imported as a package)
+# ============================================================
+__pycache__/
+*.pyc
