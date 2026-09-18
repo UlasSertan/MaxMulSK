@@ -47,6 +47,9 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
     // TEST ONLY: fills one 16-row A panel slot using the driver's own macro.
     bool probe_pack_A(const float* A, size_t M, size_t K,
                       size_t kk, size_t m, size_t kcl, float* pA);
+    // TEST ONLY: packs one 64-column B panel (kcl x 64) exactly as the driver does.
+    bool probe_pack_B(const float* B, size_t K, size_t N,
+                      size_t kk, size_t n, size_t kcl, float* pB);
 
     Support run_multiplication(const float* A, const float* B, float* C,
                                size_t M, size_t K, size_t N, const Blocking& b);

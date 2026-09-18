@@ -1,4 +1,5 @@
 #include "sme-1x4-acc-kcout.hpp"
+#include "sme/support/lab_hooks.hpp"
 
 #include <arm_sme.h>
 #include <arm_sve.h>
@@ -449,6 +450,8 @@ namespace SMEKernels1x4AccKcOut {
         // this setting the inner k loop degenerates to one call per panel.
         const size_t Kc = blk.Kc;
 
+        MAXMULSK_HOOK_EVENT(allocation);
+        MAXMULSK_HOOK_BEGIN(allocation);
         AlignedBuffer packed_A(static_cast<float*>(
             std::aligned_alloc(64, M_tile * Kc * sizeof(float))));
         AlignedBuffer packed_B(static_cast<float*>(
@@ -456,6 +459,7 @@ namespace SMEKernels1x4AccKcOut {
 
         AlignedBuffer C_scratch(static_cast<float*>(
             std::aligned_alloc(64, M_step * N_step * sizeof(float))));
+        MAXMULSK_HOOK_END(allocation);   // free side: destructors at return, not in scope
 
         for (size_t kk = 0; kk < K; kk += Kc) {
             const size_t kcl = std::min(Kc, K - kk);
@@ -468,11 +472,17 @@ namespace SMEKernels1x4AccKcOut {
 
             for (size_t m = 0; m < M; m += M_tile) {
                 size_t mc = std::min(M_tile, M - m);
+                MAXMULSK_HOOK_EVENT(pack_a);
+                MAXMULSK_HOOK_BEGIN(pack_a);
                 pack_A_streaming(A, packed_A.get(), mc, kcl, m, kk, K);
+                MAXMULSK_HOOK_END(pack_a);
 
                 for (size_t n = 0; n < N; n += N_tile) {
                     size_t nc = std::min(N_tile, N - n);
+                    MAXMULSK_HOOK_EVENT(pack_b);
+                    MAXMULSK_HOOK_BEGIN(pack_b);
                     pack_B_streaming(B, packed_B.get(), nc, kcl, kk, N, n);
+                    MAXMULSK_HOOK_END(pack_b);
 
                     // The (jr, ir) grid is walked through a flat index so the
                     // nesting order is a runtime choice without duplicating the
@@ -501,14 +511,22 @@ namespace SMEKernels1x4AccKcOut {
 
                             // Packed panels are kcl deep now, so the per-tile
                             // stride is ir * kcl / jr * kcl, not ir * K.
+                            MAXMULSK_HOOK_EVENT(za_init);
+                            MAXMULSK_HOOK_BEGIN(za_init);
                             svzero_za();
+                            MAXMULSK_HOOK_END(za_init);
+                            MAXMULSK_HOOK_BEGIN(compute);
                             for (size_t k = 0; k < kcl; k += K_tile) {
                                 size_t kc = std::min(K_tile, kcl - k);
+                                MAXMULSK_HOOK_EVENT(compute);
                                 micro_kernel_1x4(pA_base + k * SVL,
                                                  pB_base + k * N_step,
                                                  kc);
                             }
+                            MAXMULSK_HOOK_END(compute);
 
+                            MAXMULSK_HOOK_EVENT(writeback);
+                            MAXMULSK_HOOK_BEGIN(writeback);
                             if (!m_tail && !n_tail) {
                                 float* dst = C + (m + ir) * N + (n + jr);
                                 if (first_k) store_za(dst, N);
@@ -538,6 +556,7 @@ namespace SMEKernels1x4AccKcOut {
                                     }
                                 }
                             }
+                            MAXMULSK_HOOK_END(writeback);
                         }
                     }
                 }

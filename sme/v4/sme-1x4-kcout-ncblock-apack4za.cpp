@@ -1,4 +1,5 @@
 #include "sme-1x4-kcout-ncblock-apack4za.hpp"
+#include "sme/support/lab_hooks.hpp"
 
 #include <arm_sme.h>
 #include <arm_sve.h>
@@ -65,6 +66,7 @@
         /* the same slice. q0 and q1 are two independent four-Z */     \
         /* groups so a load is always in flight while ZA is */         \
         /* written. */                                                 \
+        MAXMULSK_HOOK_BEGIN(pack_a_read_transform);                            \
         svfloat32x4_t q0 = svld1_f32_x4(p4, (SRC) + 0 * (STRIDE));             \
         svfloat32x4_t q1 = svld1_f32_x4(p4, (SRC) + 1 * (STRIDE));             \
         for (uint32_t r = 0; r < 14; r += 2) {                         \
@@ -97,6 +99,8 @@
         /* Output group g = four vertical slices = 64 floats. */       \
         /* Groups 0-3 come from ZA0, 4-7 ZA1, 8-11 ZA2, 12-15 ZA3; */  \
         /* the pipeline is NOT restarted at a tile boundary. */        \
+        MAXMULSK_HOOK_END(pack_a_read_transform);                              \
+        MAXMULSK_HOOK_BEGIN(pack_a_transform_store);                           \
         float* const out = pA + kp * 16;                         \
         svfloat32x4_t s0 = NB_GROUP(0);                                \
         svfloat32x4_t s1 = NB_GROUP(1);                                \
@@ -109,6 +113,7 @@
         /* extraction -- the two stores are back to back. */           \
         svst1_f32_x4(p4, out + 14 * 64, s0);                           \
         svst1_f32_x4(p4, out + 15 * 64, s1);                           \
+        MAXMULSK_HOOK_END(pack_a_transform_store);                             \
     } while (0)
 
 namespace SMEKernels1x4KcOutNcBlockApack4Za {
@@ -491,7 +496,10 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
                         // Prepared once for the whole Nc block, on its first Mc
                         // round, and held for every later Mc round.
                         if (mm == 0) {
+                            MAXMULSK_HOOK_EVENT(pack_b);
+                            MAXMULSK_HOOK_BEGIN(pack_b);
                             pack_B_streaming(B, pB, 64, kcl, kk, N, nn + nr);
+                            MAXMULSK_HOOK_END(pack_b);
                         }
 
                         for (size_t ir = 0; ir < mcl; ir += 16) {
@@ -506,6 +514,8 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
                                 for (size_t kp = 0; kp < kcl; kp += 64) {
                                     const size_t kr = std::min<size_t>(64, kcl - kp);
 
+                                    MAXMULSK_HOOK_EVENT(pack_a);
+                                    MAXMULSK_HOOK_BEGIN(pack_a);
                                     if (rows == 16 && kr == 64) {
                                         // FULL CHUNK -- unchanged fast path.
                                         const float* const arow = arow_base + kp;
@@ -535,15 +545,24 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
                                         }
                                         NB_PACK_A_KP_CHUNK(stage, 64);
                                     }
+                                    MAXMULSK_HOOK_END(pack_a);
                                 }
                             }
 
+                            MAXMULSK_HOOK_EVENT(za_init);
+                            MAXMULSK_HOOK_BEGIN(za_init);
                             svzero_za();
+                            MAXMULSK_HOOK_END(za_init);
+                            MAXMULSK_HOOK_EVENT(compute);
+                            MAXMULSK_HOOK_BEGIN(compute);
                             micro_kernel_1x4(pA, pB, kcl);
+                            MAXMULSK_HOOK_END(compute);
 
                             float* const dstC = C + (mm + ir) * N + (nn + nr);
                             const size_t cols = std::min<size_t>(64, ncl - nr);
 
+                            MAXMULSK_HOOK_EVENT(writeback);
+                            MAXMULSK_HOOK_BEGIN(writeback);
                             if (rows == 16 && cols == 64) {
                                 // FULL TILE -- unchanged fast path, straight to C.
                                 if (first_k) store_za(dstC, N);
@@ -566,6 +585,7 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
                                     }
                                 }
                             }
+                            MAXMULSK_HOOK_END(writeback);
                         }
                     }
                 }
@@ -592,6 +612,18 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
         return true;
     }
 
+    // TEST ONLY. Calls the SAME pack_B_streaming the driver calls, for one
+    // 64-column panel starting at column n, so the packed-B layout check
+    // verifies the code that actually runs.
+    __arm_locally_streaming
+    bool probe_pack_B(const float* B, size_t K, size_t N,
+                      size_t kk, size_t n, size_t kcl, float* pB) {
+        if (static_cast<size_t>(svcntsw()) != 16) return false;
+        if (n >= N || kk + kcl > K || kcl == 0) return false;
+        pack_B_streaming(B, pB, std::min<size_t>(64, N - n), kcl, kk, N, n);
+        return true;
+    }
+
     Support run_multiplication(const float* A, const float* B, float* C,
                                size_t M, size_t K, size_t N, const Blocking& b) {
         const Support s = classify(M, K, N, b);
@@ -608,6 +640,8 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
         const size_t Mc = std::min(b.Mc, ((M + 15) / 16) * 16);
 
         const size_t Kc_pad = ((Kc + 63) / 64) * 64;
+        MAXMULSK_HOOK_EVENT(allocation);
+        MAXMULSK_HOOK_BEGIN(allocation);
         AlignedBuffer packed_A(static_cast<float*>(
             std::aligned_alloc(64, Mc * Kc_pad * sizeof(float))));
         AlignedBuffer packed_B(static_cast<float*>(
@@ -616,8 +650,11 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
         // C tiles. 4 KiB apiece, allocated once outside every loop.
         AlignedBuffer stage(static_cast<float*>(std::aligned_alloc(64, 16 * 64 * sizeof(float))));
         AlignedBuffer scratch(static_cast<float*>(std::aligned_alloc(64, 16 * 64 * sizeof(float))));
+        MAXMULSK_HOOK_END(allocation);
         if (!packed_A || !packed_B || !stage || !scratch) return Support::AllocationFailed;
 
+        // The free side happens in the destructors at return and is NOT inside
+        // the allocation scope: moving it would change the production code.
         return run_streaming(A, B, C, M, K, N, packed_A.get(), packed_B.get(),
                              stage.get(), scratch.get(), Kc, Nc, Mc)
                    ? Support::Native : Support::UnsupportedVectorLength;
