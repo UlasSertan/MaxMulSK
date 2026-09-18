@@ -1,6 +1,6 @@
 #include "gemm_providers.hpp"
 #include "sme/v4/sme-1x4-v4c-dispatch.hpp"
-#include "sme/v4/sme-1x4-kcout-ncblock-apack4za-tail.hpp"
+#include "sme/v4/sme-1x4-kcout-ncblock-apack4za.hpp"
 
 #include <Accelerate/Accelerate.h>
 #include <chrono>
@@ -17,7 +17,7 @@ void row_sgemm(int m, int n, int k, float* XA, float* XB, float* XC);
 
 namespace V4C = SMEKernels1x4V4C;
 namespace NB  = SMEKernels1x4KcOutNcBlockApack4Za;
-namespace TL  = SMEKernels1x4NcBlockTail;
+namespace TL  = SMEKernels1x4KcOutNcBlockApack4Za;  // tail path merged into the main kernel; V4CTail == V4C now
 
 // Same selection rule as v4c, applied to the tail-capable kernel. The rule is
 // unchanged; only the kernel behind it differs, which is the whole point of the

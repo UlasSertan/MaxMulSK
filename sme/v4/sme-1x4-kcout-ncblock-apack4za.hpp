@@ -13,10 +13,16 @@
 //
 // SEMANTICS: C = A*B (overwrite). The caller need not pre-zero C.
 //
-// NO TAIL PATH: native only when M%16==0, N%64==0, K%64==0, with 16 fp32
-// streaming lanes, and with Mc/Nc/Kc multiples of 16/64/64. A short FINAL
-// macroblock is supported. Anything else returns a reason and leaves C
-// untouched; this kernel never substitutes another one.
+// WITH TAIL SUPPORT. M, N and K may be anything; short final microtiles go
+// through a scratch path. Still requires 16 fp32 streaming lanes and Mc/Nc/Kc
+// that are multiples of 16/64/64, since the panel slot arithmetic depends on it.
+//
+// The full-tile path is deliberately byte-identical to the tail-free kernel this
+// replaced (measured 2026-09-13, TU hash 546284d4..., archived under
+// bench/results/2026-09-13/source):
+// same packing macro, same store_za, no extra branch inside the micro-kernel
+// loop. Edge work happens in a 16x64 staging block and a 16x64 C scratch, both
+// allocated once outside every loop.
 // =============================================================================
 
 namespace SMEKernels1x4KcOutNcBlockApack4Za {

@@ -31,7 +31,7 @@
 //
 // FULL TILES ONLY in this version: M % 16, N % 64, K % 64 must all be zero;
 // anything else is refused with C untouched. Tail support lives in the
-// ncblock-apack4za-tail kernel and can be carried over once this macroflow has
+// ncblock-apack4za kernel (tail path) and can be carried over once this macroflow has
 // been measured.
 //
 // Pack counts are counted, not assumed. Whether either operand is packed once

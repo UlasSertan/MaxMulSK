@@ -54,7 +54,7 @@
     svst1_f32_x4(p4, out + ((g) + 1) * 64, s1);                                \
     s1 = NB_GROUP((g) + 3);
 
-#define NB_PACK_A_KP_CHUNK()                                           \
+#define NB_PACK_A_KP_CHUNK(SRC, STRIDE)                                           \
     do {                                                               \
         /* ---- HORIZONTAL FILL: memory -> Z -> ZA ------------- */    \
         /* No svzero_za here: every ZA element that is read back */    \
@@ -65,20 +65,20 @@
         /* the same slice. q0 and q1 are two independent four-Z */     \
         /* groups so a load is always in flight while ZA is */         \
         /* written. */                                                 \
-        svfloat32x4_t q0 = svld1_f32_x4(p4, arow + 0 * K);             \
-        svfloat32x4_t q1 = svld1_f32_x4(p4, arow + 1 * K);             \
+        svfloat32x4_t q0 = svld1_f32_x4(p4, (SRC) + 0 * (STRIDE));             \
+        svfloat32x4_t q1 = svld1_f32_x4(p4, (SRC) + 1 * (STRIDE));             \
         for (uint32_t r = 0; r < 14; r += 2) {                         \
             svwrite_hor_za32_f32_m(0, r, pg, svget4_f32(q0, 0));       \
             svwrite_hor_za32_f32_m(1, r, pg, svget4_f32(q0, 1));       \
             svwrite_hor_za32_f32_m(2, r, pg, svget4_f32(q0, 2));       \
             svwrite_hor_za32_f32_m(3, r, pg, svget4_f32(q0, 3));       \
             /* every component of q0 is consumed; refill it */         \
-            q0 = svld1_f32_x4(p4, arow + (r + 2) * K);                 \
+            q0 = svld1_f32_x4(p4, (SRC) + (r + 2) * (STRIDE));                 \
             svwrite_hor_za32_f32_m(0, r + 1, pg, svget4_f32(q1, 0));   \
             svwrite_hor_za32_f32_m(1, r + 1, pg, svget4_f32(q1, 1));   \
             svwrite_hor_za32_f32_m(2, r + 1, pg, svget4_f32(q1, 2));   \
             svwrite_hor_za32_f32_m(3, r + 1, pg, svget4_f32(q1, 3));   \
-            q1 = svld1_f32_x4(p4, arow + (r + 3) * K);                 \
+            q1 = svld1_f32_x4(p4, (SRC) + (r + 3) * (STRIDE));                 \
         }                                                              \
         /* DRAIN: rows 14 and 15 are already in q0/q1. No load of */   \
         /* rows 16/17 -- they do not exist in this 16-row panel. */    \
@@ -356,6 +356,26 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
         }
     }
 
+    // Edge tiles only: drain the full 16x64 accumulator into a dense scratch,
+    // from which the driver copies just the valid rows and columns. Same body as
+    // store_za with a fixed 64-float row stride; the full-tile path does not go
+    // through here and is left byte-identical.
+    __attribute__((noinline))
+    static void store_za_tile(float* RESTRICT scratch) __arm_in("za") __arm_streaming {
+        const svbool_t pg = svptrue_b32();
+        const svcount_t pn = svptrue_c32();
+        const size_t SVL = static_cast<size_t>(svcntsw());
+        svfloat32_t inactive = svundef_f32();
+        for (size_t i = 0; i < SVL; i++) {
+            svfloat32x4_t row = svcreate4_f32(
+                svread_hor_za32_f32_m(inactive, pg, 0, (uint32_t)i),
+                svread_hor_za32_f32_m(inactive, pg, 1, (uint32_t)i),
+                svread_hor_za32_f32_m(inactive, pg, 2, (uint32_t)i),
+                svread_hor_za32_f32_m(inactive, pg, 3, (uint32_t)i));
+            svst1_f32_x4(pn, scratch + i * 4 * SVL, row);
+        }
+    }
+
     __attribute__((noinline))
     static void store_za_add(float* RESTRICT C, size_t wide_of_C) __arm_in("za") __arm_streaming {
         const size_t SVL = static_cast<size_t>(svcntsw());
@@ -384,9 +404,9 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
 
     Support classify(size_t M, size_t K, size_t N, const Blocking& b) {
         if (M == 0 || K == 0 || N == 0)  return Support::Unsupported;
-        if (M % 16 != 0)                 return Support::UnsupportedMTail;
-        if (N % 64 != 0)                 return Support::UnsupportedNTail;
-        if (K % 64 != 0)                 return Support::UnsupportedKTail;
+        // M, N and K may now be anything: short final microtiles go through the
+        // scratch path below. Only the MACROBLOCK sizes still have to be whole
+        // numbers of microtiles, because the panel slot arithmetic depends on it.
         // A macroblock must be a whole number of microtiles and packing chunks.
         // A SHORT FINAL macroblock is fine: Mc=128 against M=64 just makes the
         // single block 64 rows. What is rejected is a macroblock size that is
@@ -403,19 +423,31 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
     // compute address slots the same way.
     void capacity(size_t M, size_t K, size_t N, const Blocking& b,
                   size_t* packed_A_bytes, size_t* packed_B_bytes) {
+        // Clamp to the shape, but round UP to a whole microtile first. The panel
+        // slot arithmetic is (nr/64)*(Kc*64) and (ir/16)*(Kc_pad*16), so a
+        // macroblock clamped to a non-multiple would size the buffer for fewer
+        // slots than the loops actually visit and write past the end.
         const size_t Kc = std::min(b.Kc, K);
-        const size_t Nc = std::min(b.Nc, N);
-        const size_t Mc = std::min(b.Mc, M);
-        *packed_A_bytes = Mc * Kc * sizeof(float);
+        const size_t Nc = std::min(b.Nc, ((N + 63) / 64) * 64);
+        const size_t Mc = std::min(b.Mc, ((M + 15) / 16) * 16);
+        // packed_A's K is rounded up to a whole 64-wide packing chunk: a short
+        // final chunk is zero-padded rather than specially addressed, and the
+        // micro-kernel simply never reads past the real length.
+        const size_t Kc_pad = ((Kc + 63) / 64) * 64;
+        *packed_A_bytes = Mc * Kc_pad * sizeof(float);
         *packed_B_bytes = Nc * Kc * sizeof(float);
     }
 
     // Preparation and compute counts, derived from the loop structure alone. No
     // instrumentation is added to the hot path.
     void counts(size_t M, size_t K, size_t N, const Blocking& b, Counts* out) {
+        // Clamp to the shape, but round UP to a whole microtile first. The panel
+        // slot arithmetic is (nr/64)*(Kc*64) and (ir/16)*(Kc_pad*16), so a
+        // macroblock clamped to a non-multiple would size the buffer for fewer
+        // slots than the loops actually visit and write past the end.
         const size_t Kc = std::min(b.Kc, K);
-        const size_t Nc = std::min(b.Nc, N);
-        const size_t Mc = std::min(b.Mc, M);
+        const size_t Nc = std::min(b.Nc, ((N + 63) / 64) * 64);
+        const size_t Mc = std::min(b.Mc, ((M + 15) / 16) * 16);
         out->kc_slices = (K + Kc - 1) / Kc;
         out->nc_blocks = (N + Nc - 1) / Nc;
         out->mc_blocks = (M + Mc - 1) / Mc;
@@ -433,12 +465,15 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
     static bool run_streaming(const float* A, const float* B, float* C,
                               size_t M, size_t K, size_t N,
                               float* packed_A, float* packed_B,
+                              float* stage, float* scratch,
                               size_t Kc, size_t Nc, size_t Mc) {
         if (static_cast<size_t>(svcntsw()) != 16) return false;
 
         const svbool_t  pg = svptrue_b32();
         const svcount_t p4 = svptrue_c32();
         const svfloat32_t zu = svundef_f32();
+        const size_t SVL    = static_cast<size_t>(svcntsw());   // 16, checked above
+        const size_t Kc_pad = ((Kc + 63) / 64) * 64;
 
         for (size_t kk = 0; kk < K; kk += Kc) {
             const size_t kcl = std::min(Kc, K - kk);
@@ -460,15 +495,46 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
                         }
 
                         for (size_t ir = 0; ir < mcl; ir += 16) {
-                            float* const pA = packed_A + (ir / 16) * (Kc * 16);
+                            float* const pA = packed_A + (ir / 16) * (Kc_pad * 16);
 
                             // Packed on this Nc block's first panel and reused by
                             // the rest of it; re-packed for the next Nc block.
+                            const size_t rows = std::min<size_t>(16, mcl - ir);
+
                             if (nr == 0) {
                                 const float* const arow_base = A + (mm + ir) * K + kk;
                                 for (size_t kp = 0; kp < kcl; kp += 64) {
-                                    const float* const arow = arow_base + kp;
-                                    NB_PACK_A_KP_CHUNK();
+                                    const size_t kr = std::min<size_t>(64, kcl - kp);
+
+                                    if (rows == 16 && kr == 64) {
+                                        // FULL CHUNK -- unchanged fast path.
+                                        const float* const arow = arow_base + kp;
+                                        NB_PACK_A_KP_CHUNK(arow, K);
+                                    } else {
+                                        // EDGE CHUNK. Build a dense, zero-filled
+                                        // 16x64 staging block and run the SAME
+                                        // packing macro over it at stride 64, so
+                                        // the packed layout and the ZA pipeline
+                                        // are identical to the fast path.
+                                        //
+                                        // Zeroing is done with predicated SVE
+                                        // stores, never memset: a scalar fill
+                                        // inside a streaming function lowers to
+                                        // __arm_sc_memset, which does not exist.
+                                        // Rows beyond the panel and k beyond the
+                                        // slice become exact zeros, and a zero
+                                        // contributes nothing to the svmopa sum.
+                                        for (size_t r = 0; r < 16; r++) {
+                                            const size_t have = (r < rows) ? kr : 0;
+                                            const float* srow = arow_base + (r < rows ? r : 0) * K + kp;
+                                            float* drow = stage + r * 64;
+                                            for (size_t j = 0; j < 64; j += SVL) {
+                                                const svbool_t pv = svwhilelt_b32_u64(j, have);
+                                                svst1_f32(pg, drow + j, svld1_f32(pv, srow + j));
+                                            }
+                                        }
+                                        NB_PACK_A_KP_CHUNK(stage, 64);
+                                    }
                                 }
                             }
 
@@ -476,8 +542,30 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
                             micro_kernel_1x4(pA, pB, kcl);
 
                             float* const dstC = C + (mm + ir) * N + (nn + nr);
-                            if (first_k) store_za(dstC, N);
-                            else         store_za_add(dstC, N);
+                            const size_t cols = std::min<size_t>(64, ncl - nr);
+
+                            if (rows == 16 && cols == 64) {
+                                // FULL TILE -- unchanged fast path, straight to C.
+                                if (first_k) store_za(dstC, N);
+                                else         store_za_add(dstC, N);
+                            } else {
+                                // EDGE TILE. Drain the whole accumulator into a
+                                // dense 16x64 scratch, then move only the valid
+                                // rows and columns. C outside the tile is never
+                                // touched, which is what the full-width store
+                                // could not guarantee.
+                                store_za_tile(scratch);
+                                for (size_t r = 0; r < rows; r++) {
+                                    const float* sr = scratch + r * 64;
+                                    float* cr = dstC + r * N;
+                                    for (size_t j = 0; j < cols; j += SVL) {
+                                        const svbool_t pv = svwhilelt_b32_u64(j, cols);
+                                        svfloat32_t v = svld1_f32(pv, sr + j);
+                                        if (!first_k) v = svadd_f32_m(pv, v, svld1_f32(pv, cr + j));
+                                        svst1_f32(pv, cr + j, v);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -499,7 +587,7 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
         const float* const arow_base = A + m * K + kk;
         for (size_t kp = 0; kp < kcl; kp += 64) {
             const float* const arow = arow_base + kp;
-            NB_PACK_A_KP_CHUNK();
+            NB_PACK_A_KP_CHUNK(arow, K);
         }
         return true;
     }
@@ -511,17 +599,27 @@ namespace SMEKernels1x4KcOutNcBlockApack4Za {
 
         // Clamp to the shape so a macroblock larger than the matrix does not
         // over-allocate; the loops then see a single short block.
+        // Clamp to the shape, but round UP to a whole microtile first. The panel
+        // slot arithmetic is (nr/64)*(Kc*64) and (ir/16)*(Kc_pad*16), so a
+        // macroblock clamped to a non-multiple would size the buffer for fewer
+        // slots than the loops actually visit and write past the end.
         const size_t Kc = std::min(b.Kc, K);
-        const size_t Nc = std::min(b.Nc, N);
-        const size_t Mc = std::min(b.Mc, M);
+        const size_t Nc = std::min(b.Nc, ((N + 63) / 64) * 64);
+        const size_t Mc = std::min(b.Mc, ((M + 15) / 16) * 16);
 
+        const size_t Kc_pad = ((Kc + 63) / 64) * 64;
         AlignedBuffer packed_A(static_cast<float*>(
-            std::aligned_alloc(64, Mc * Kc * sizeof(float))));
+            std::aligned_alloc(64, Mc * Kc_pad * sizeof(float))));
         AlignedBuffer packed_B(static_cast<float*>(
             std::aligned_alloc(64, Nc * Kc * sizeof(float))));
-        if (!packed_A || !packed_B) return Support::AllocationFailed;
+        // 16x64 each: one staging block for edge A chunks, one scratch for edge
+        // C tiles. 4 KiB apiece, allocated once outside every loop.
+        AlignedBuffer stage(static_cast<float*>(std::aligned_alloc(64, 16 * 64 * sizeof(float))));
+        AlignedBuffer scratch(static_cast<float*>(std::aligned_alloc(64, 16 * 64 * sizeof(float))));
+        if (!packed_A || !packed_B || !stage || !scratch) return Support::AllocationFailed;
 
-        return run_streaming(A, B, C, M, K, N, packed_A.get(), packed_B.get(), Kc, Nc, Mc)
+        return run_streaming(A, B, C, M, K, N, packed_A.get(), packed_B.get(),
+                             stage.get(), scratch.get(), Kc, Nc, Mc)
                    ? Support::Native : Support::UnsupportedVectorLength;
     }
 
