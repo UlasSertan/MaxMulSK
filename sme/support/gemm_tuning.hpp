@@ -27,9 +27,16 @@
 
 namespace MaxMulSK::tuning {
 
+// Which v3 kernel the blocking is for. The three geometries have different
+// output tiles (1x4 is SVL x 4*SVL, 2x2 is 2*SVL x 2*SVL, 4x1 is 4*SVL x SVL),
+// so N_tile has a different legal granularity in each and a value that helps
+// one can be illegal or harmful in another. They get separate defaults and
+// separate tables; nothing measured on one is applied to another.
+enum class Kernel { Sme1x4KcOut, Sme2x2KcOut, Sme4x1KcOut };
+
 struct Blocking {
     size_t M_tile   = 1024;
-    size_t N_tile   = 64;     // must be a multiple of N_step = 4*SVL
+    size_t N_tile   = 64;     // must be a multiple of that kernel's N_step
     size_t Kc       = 2048;   // outer K panel
     bool   ir_outer = false;  // swap the jr/ir nest; only meaningful when
                               // N_tile > N_step
@@ -41,10 +48,10 @@ struct Blocking {
 //
 // MAXMULSK_BLOCKING="M_tile,N_tile,Kc,ir_outer" overrides everything, so a
 // sweep can be driven without recompiling. Malformed values are ignored.
-Blocking select(size_t M, size_t K, size_t N);
+Blocking select(Kernel k, size_t M, size_t K, size_t N);
 
 // What select() would return with the environment override ignored. Exposed so
 // a benchmark can report the table's own choice separately from an override.
-Blocking select_from_table(size_t M, size_t K, size_t N);
+Blocking select_from_table(Kernel k, size_t M, size_t K, size_t N);
 
 }  // namespace MaxMulSK::tuning

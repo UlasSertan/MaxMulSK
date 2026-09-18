@@ -28,7 +28,17 @@ namespace SMEKernels4x1AccKcOut {
 
         for (size_t m = 0; m < M_curr; m += SVL) {
             const float* row_base = A + (m + curr_row) * K + curr_col;
-            size_t p = m / SVL; // panel index within group (0-3)
+            // The panel index wraps inside a 4-panel group, and each group of
+            // 4*SVL rows owns its own contiguous GS*K_curr block. Writing
+            // `p = m / SVL` with no group base only addresses ONE group: for
+            // m >= 4*SVL the panels land on top of the next k-step's data and
+            // the result is silently wrong. That is BUG-ZAPACK-WRONG, fixed in
+            // 4x1-ZAPack in 2026-07 and carried here unnoticed, because plain
+            // 4x1 only ever ran with M_tile == 4*SVL == one group. The blocking
+            // sweep is what surfaced it: every M_tile > 64 came back with a
+            // relative error of 1.2 against the default.
+            size_t p = (m / SVL) % 4;
+            float* group_base = packed_A + (m / GS) * GS * K_curr;
             size_t k = 0;
             size_t rows_here = std::min(SVL, M_curr - m);
 
@@ -139,7 +149,7 @@ namespace SMEKernels4x1AccKcOut {
 
                 // Store interleaved: col_i goes to k-step (k+i), panel slot p
                 // Stride between consecutive cols = GS (4*SVL), not SVL
-                float* out = packed_A + k * GS + p * SVL;
+                float* out = group_base + k * GS + p * SVL;
                 svst1_f32(pg, out +  0*GS, col0);
                 svst1_f32(pg, out +  1*GS, col1);
                 svst1_f32(pg, out +  2*GS, col2);
@@ -165,7 +175,7 @@ namespace SMEKernels4x1AccKcOut {
                 for (size_t row = 0; row < rows_here; row++)
                     tmp[row] = row_base[k + row * K];
                 svfloat32_t col_vec = svld1_f32(pg, tmp);
-                svst1_f32(pg, packed_A + k * GS + p * SVL, col_vec);
+                svst1_f32(pg, group_base + k * GS + p * SVL, col_vec);
                 svst1_f32(pg, tmp, svdup_f32(0.0f));
             }
         }
@@ -432,15 +442,17 @@ namespace SMEKernels4x1AccKcOut {
 
     __arm_locally_streaming __arm_new("za")
     __attribute__((noinline))
-    void run_multiplication(const float* A, const float* B, float* C,
-                            size_t M, size_t K, size_t N) {
+    void run_multiplication_blocked(const float* A, const float* B, float* C,
+                                    size_t M, size_t K, size_t N,
+                                    MaxMulSK::tuning::Blocking blk) {
         const size_t SVL = static_cast<size_t>(svcntsw());
 
         // Tile sizes are 4x1's shipped ones, unchanged. Only the K nesting moved.
-        constexpr size_t M_tile = 64;
-        constexpr size_t K_tile = 2048;   // inner chunk, one micro-kernel call
-        constexpr size_t N_tile = 1024;
-        constexpr size_t Kc     = 2048;   // OUTER K panel
+        const size_t M_tile = blk.M_tile;
+        const size_t N_tile = blk.N_tile;
+        // K_tile is pinned to Kc, so the inner k loop is one call per panel.
+        const size_t K_tile = blk.Kc;
+        const size_t Kc     = blk.Kc;
 
         const size_t M_step = 4 * SVL;
         const size_t N_step = 1 * SVL;
@@ -491,16 +503,23 @@ namespace SMEKernels4x1AccKcOut {
 
                     pack_A_streaming(A, packed_A.get(), mc, kcl, m, kk, K);
 
-                    for (size_t jr = 0; jr < nc; jr += N_step) {
-                        size_t n_rem = nc - jr;
-                        for (size_t ir = 0; ir < mc; ir += M_step) {
-                            size_t m_rem = mc - ir;
+                    // The (jr, ir) grid is walked through a flat index so the
+                    // nesting order becomes a runtime choice without duplicating
+                    // the tile body. blk.ir_outer swaps which packed panel stays
+                    // resident in the inner loop; it only matters when
+                    // N_tile > N_step, since otherwise jr has a single point.
+                    const size_t n_jr = (nc + N_step - 1) / N_step;
+                    const size_t n_ir = (mc + M_step - 1) / M_step;
 
+                    for (size_t t = 0; t < n_jr * n_ir; t++) {
+                        const size_t jr = (blk.ir_outer ? (t % n_jr) : (t / n_ir)) * N_step;
+                        const size_t ir = (blk.ir_outer ? (t / n_jr) : (t % n_ir)) * M_step;
+                        const size_t n_rem = nc - jr;
+                        const size_t m_rem = mc - ir;
+                        {
                             bool m_tail = m_rem < M_step;
                             bool n_tail = n_rem < N_step;
 
-                            // Panels are kcl deep, and one k-step consumes
-                            // M_step floats of A and N_step of B.
                             svzero_za();
                             for (size_t k = 0; k < kcl; k += K_tile) {
                                 size_t kc = std::min(K_tile, kcl - k);
@@ -547,6 +566,15 @@ namespace SMEKernels4x1AccKcOut {
                 }
             }
         }
+    }
+
+    // Public entry point: pick the blocking in normal mode, then enter
+    // streaming exactly once.
+    void run_multiplication(const float* A, const float* B, float* C,
+                            size_t M, size_t K, size_t N) {
+        run_multiplication_blocked(A, B, C, M, K, N,
+                                   MaxMulSK::tuning::select(
+                                       MaxMulSK::tuning::Kernel::Sme4x1KcOut, M, K, N));
     }
 
 } // namespace SMEKernels4x1AccKcOut

@@ -1,0 +1,41 @@
+# Environment for bench/results/2026-09-13  (experiments F2 and F2-ZaPres)
+
+date_run        : 2026-09-13
+host            : Apple M4  (4P + 6E, 16 GB)
+os              : macOS 26.5.2 (25.5.0)
+compiler        : Homebrew clang version 22.1.8
+flags           : -std=gnu++20 -O3 -DNDEBUG -march=armv8.7-a+sme+sme2 -mcpu=apple-m4 -Wall -Wextra
+base_commit     : 8f1ec86
+shape           : M=11008 K=4096 N=256, FP32, row-major, single thread
+power           : caffeinate -dimsu
+
+entrants
+  R0          sme/v3/sme-1x4-acc-kcout.cpp, table blocking Mc1024/Kc2048/Nc64
+  F2          sme/v4/sme-1x4-kcout-mc16-apack4za-bonce.cpp, Mc16/Kc2048/Nc64
+  F2-ZaPres   F2 + pack_B_streaming declared __arm_preserves("za"); nothing else differs
+  Accelerate  system framework, BLASSetThreading(BLAS_THREADING_SINGLE_THREADED)
+  MpGEMM      https://github.com/mpgemm/MPGEMM @ 419d283, row_sgemm,
+              built by its own src/Makefile (clang -O3 -march=armv9-a+sme2+sme+sme-f64f64)
+
+runs            : f2_vs_r0.csv        R0 vs F2,        9 runs, 15 reps each
+                  f2_zapres_3way.csv  + F2-ZaPres,     9 runs, 13 reps each
+                  f2_5way.csv         + Accelerate,    10 runs, 12 reps each
+                                        + MpGEMM
+                  Each CSV comes from a DIFFERENT binary; compare across files
+                  with care, R0 moves by more than 10% between them.
+
+source state    : see source/SHA256SUMS.txt, source/tracked-relevant.diff and the
+                  full copies of the untracked sources in source/. Unrelated
+                  working-tree edits (2x2, 4x1, bench_headline, .idea) are NOT
+                  part of these binaries and are deliberately excluded.
+
+full-table sweep (v4_sweep.csv, added later the same session)
+  entrants      v3 acc-kcout (table blocking, recorded per shape in the CSV),
+                generalised v4 (Mc=16, Nc=64, Kc=min(2048,K)), Accelerate, MpGEMM
+  shapes        35, from bench/bench_sweep_shapes.h
+  runs          5 per shape, reps calibrated on the slowest entrant
+  order         cyclic Latin square over (shape index + run + slot)
+  correctness   every shape checked against v3 in the same run
+  binary        cmake-build-release/bench_v4_sweep  (hash in source/SHA256SUMS.txt)
+  NOTE          this is a DIFFERENT binary from the f2_*.csv runs; v3 figures are
+                not comparable across the two.

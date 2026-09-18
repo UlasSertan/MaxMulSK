@@ -1,0 +1,33 @@
+# Environment for bench/results/2026-09-10
+
+date_run          : 2026-09-10
+host              : Apple M4
+cores             : 4P + 6E
+memory            : 16 GB
+os                : macOS 26.5.2 (25.5.0)
+compiler          : Homebrew clang version 22.1.8
+sdk               : /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk
+maxmulsk_commit   : 8f1ec86, WITH UNCOMMITTED CHANGES -- the benchmarked v3
+                    kernels are NOT the committed ones. Modified working-tree
+                    files that this run exercised:
+                      CMakeLists.txt
+                      bench/bench_headline.cpp
+                      sme/support/gemm_tuning.cpp
+                      sme/support/gemm_tuning.hpp
+                      sme/v3/sme-1x4-acc-kcout.cpp
+                      sme/v3/sme-2x2-acc-kcout.cpp
+                      sme/v3/sme-2x2-acc-kcout.hpp
+                      sme/v3/sme-4x1-acc-kcout.cpp
+                      sme/v3/sme-4x1-acc-kcout.hpp
+                    ( 9 files changed, 222 insertions(+), 54 deletions(-))
+                    The 4x1 pack_A group-addressing fix and the per-kernel
+                    blocking tables are among these edits. sme/v4/ is untracked
+                    and was NOT exercised by this benchmark.
+maxmulsk_kernels  : sme/v3/{1x4,2x2,4x1}-acc-kcout, blocking from sme/support/gemm_tuning.cpp
+mpgemm_repo       : https://github.com/mpgemm/MPGEMM
+mpgemm_commit     : 419d283
+mpgemm_build      : src/Makefile as shipped; clang -O3 -march=armv9-a+sme2+sme+sme-f64f64
+mpgemm_entry      : row_sgemm (FP32, row-major, single-threaded)
+accelerate        : system framework, BLASSetThreading(BLAS_THREADING_SINGLE_THREADED)
+benchmark         : bench/bench_vs_mpgemm.cpp, target bench_vs_mpgemm
+power             : caffeinate -dimsu for the whole run; no thread pinning available on macOS

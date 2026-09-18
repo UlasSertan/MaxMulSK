@@ -1,0 +1,32 @@
+35 shapes, 0 not run natively by v4c (these would need an explicitly labelled fallback; there are none here)
+
+profile chosen by the rule: {'v4a': 27, 'v4b': 8}
+largest relative error vs v3: v4c 1.091e-06, Accelerate 3.331e-06, MpGEMM 3.331e-06
+
+  v4c vs Accelerate      geomean 1.053x   win/tie/loss 11/18/6
+  v4c vs MpGEMM          geomean 0.959x   win/tie/loss 6/13/16
+
+regime                n   v4c/acc   v4c/mp   w/t/l acc    w/t/l mp
+narrow N (<=256)      7    0.910x   0.914x   0/5/2        0/0/7
+narrow M (<=128)     18    1.141x   0.931x   10/5/3        0/11/7
+all three large       8    1.017x   1.067x   0/8/0        6/1/1
+mixed                 2    0.976x   0.965x   1/0/1        0/1/1
+
+largest losses
+  vs Accelerate square      256x256x256     0.651x
+  vs Accelerate square      512x512x512     0.901x
+  vs Accelerate ds-id1      64x7168x2112    0.905x
+  vs Accelerate ds-id7      128x7168x2112    0.920x
+  vs Accelerate llm         64x8192x512     0.932x
+  vs MpGEMM     ds-id5      64x7168x4096    0.772x
+  vs MpGEMM     square      256x256x256     0.787x
+  vs MpGEMM     ds-id1      64x7168x2112    0.843x
+  vs MpGEMM     llm         64x8192x512     0.863x
+  vs MpGEMM     ds-id7      128x7168x2112    0.872x
+
+largest spreads
+  ds-id15     4096x512x32768   max 18.5%  reps=5
+  ds-id14     4096x1536x24576   max 15.1%  reps=3
+  ds-id13     4096x7168x2112    max 10.0%  reps=6
+  square      4096x4096x4096    max 6.4%  reps=5
+  llama-id20  11008x4096x256     max 5.3%  reps=28

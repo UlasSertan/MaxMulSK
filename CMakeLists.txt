@@ -119,7 +119,7 @@ set_source_files_properties(neon/neon-8x12.cpp neon/test_neon.cpp PROPERTIES
 )
 
 # SME: ARMv8.7 + SME/SME2 extensions (re-enable with the sources above)
-set_source_files_properties(sme/v1/sme-4x1.cpp sme/v1/sme-2x2.cpp sme/v1/sme-1x4.cpp sme/v1/sme-1x4-sym.cpp sme/experimental/v1/sme-1x4-sym-zainout.cpp sme/experimental/v1/sme-4x1-zapack.cpp sme/v2/sme-1x4-acc.cpp sme/v2/sme-1x4-acc-kc.cpp sme/experimental/v2/sme-1x4-acc-fast.cpp sme/v3/sme-1x4-acc-kcout.cpp sme/experimental/v3/sme-1x4-acc-fast-kcout.cpp sme/v3/sme-2x2-acc-kcout.cpp sme/experimental/v3/sme-1x4-acc-kcout-bdirect.cpp sme/v3/sme-4x1-acc-kcout.cpp sme/support/gemm_tuning.cpp sme/support/test_sme.cpp PROPERTIES
+set_source_files_properties(sme/v1/sme-4x1.cpp sme/v1/sme-2x2.cpp sme/v1/sme-1x4.cpp sme/v1/sme-1x4-sym.cpp sme/experimental/v1/sme-1x4-sym-zainout.cpp sme/experimental/v1/sme-4x1-zapack.cpp sme/v2/sme-1x4-acc.cpp sme/v2/sme-1x4-acc-kc.cpp sme/experimental/v2/sme-1x4-acc-fast.cpp sme/v3/sme-1x4-acc-kcout.cpp sme/experimental/v3/sme-1x4-acc-fast-kcout.cpp sme/v3/sme-2x2-acc-kcout.cpp sme/experimental/v3/sme-1x4-acc-kcout-bdirect.cpp sme/v3/sme-4x1-acc-kcout.cpp sme/v4/sme-1x4-kcout-mc16-apack4za-bonce.cpp sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-zapres.cpp sme/experimental/v4/sme-1x4-acc-kcout-small.cpp sme/experimental/v4/sme-1x4-bstream-reg1.cpp sme/experimental/v4/sme-1x4-bstream-reg3.cpp sme/experimental/v4/sme-1x4-bstream-ilv2.cpp sme/experimental/v4/sme-1x4-bstream-ilv1.cpp sme/experimental/v4/sme-1x4-bstream-ilv4.cpp sme/experimental/v4/sme-1x4-bstream-v3sched.cpp sme/support/gemm_tuning.cpp sme/support/test_sme.cpp PROPERTIES
         COMPILE_OPTIONS "-march=armv8.7-a+sme+sme2"
 )
 
@@ -215,6 +215,32 @@ if(MAXMULSK_WITH_KLEIDIAI)
             sme/v3/sme-2x2-acc-kcout.cpp
             sme/experimental/v3/sme-1x4-acc-kcout-bdirect.cpp
             sme/v3/sme-4x1-acc-kcout.cpp
+            sme/v4/sme-1x4-kcout-mc16-apack4za-bonce.cpp
+        sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-zapres.cpp
+            sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-zapres.cpp
+            sme/v4/sme-1x4-kcout-mc16-apack4za-bonce.cpp
+        sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-zapres.cpp
+            sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-zapres.cpp
+        sme/experimental/v4/sme-1x4-acc-kcout-small.cpp
+        sme/experimental/v4/sme-1x4-bstream-reg1.cpp
+        sme/experimental/v4/sme-1x4-bstream-reg3.cpp
+        sme/experimental/v4/sme-1x4-bstream-ilv2.cpp
+        sme/experimental/v4/sme-1x4-bstream-ilv1.cpp
+        sme/experimental/v4/sme-1x4-bstream-ilv4.cpp
+        sme/experimental/v4/sme-1x4-bstream-v3sched.cpp
+            sme/experimental/v4/sme-1x4-bstream-reg1.cpp
+            sme/experimental/v4/sme-1x4-bstream-reg3.cpp
+        sme/experimental/v4/sme-1x4-bstream-ilv2.cpp
+        sme/experimental/v4/sme-1x4-bstream-ilv1.cpp
+        sme/experimental/v4/sme-1x4-bstream-ilv4.cpp
+        sme/experimental/v4/sme-1x4-bstream-v3sched.cpp
+            sme/experimental/v4/sme-1x4-bstream-ilv2.cpp
+            sme/experimental/v4/sme-1x4-bstream-ilv1.cpp
+        sme/experimental/v4/sme-1x4-bstream-ilv4.cpp
+        sme/experimental/v4/sme-1x4-bstream-v3sched.cpp
+            sme/experimental/v4/sme-1x4-bstream-ilv4.cpp
+        sme/experimental/v4/sme-1x4-bstream-v3sched.cpp
+            sme/experimental/v4/sme-1x4-bstream-v3sched.cpp
             sme/support/gemm_tuning.cpp
     )
 
@@ -311,6 +337,32 @@ if(MAXMULSK_WITH_KLEIDIAI)
             sme/v3/sme-2x2-acc-kcout.cpp
             sme/experimental/v3/sme-1x4-acc-kcout-bdirect.cpp
             sme/v3/sme-4x1-acc-kcout.cpp
+            sme/v4/sme-1x4-kcout-mc16-apack4za-bonce.cpp
+        sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-zapres.cpp
+            sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-zapres.cpp
+            sme/v4/sme-1x4-kcout-mc16-apack4za-bonce.cpp
+        sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-zapres.cpp
+            sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-zapres.cpp
+        sme/experimental/v4/sme-1x4-acc-kcout-small.cpp
+        sme/experimental/v4/sme-1x4-bstream-reg1.cpp
+        sme/experimental/v4/sme-1x4-bstream-reg3.cpp
+        sme/experimental/v4/sme-1x4-bstream-ilv2.cpp
+        sme/experimental/v4/sme-1x4-bstream-ilv1.cpp
+        sme/experimental/v4/sme-1x4-bstream-ilv4.cpp
+        sme/experimental/v4/sme-1x4-bstream-v3sched.cpp
+            sme/experimental/v4/sme-1x4-bstream-reg1.cpp
+            sme/experimental/v4/sme-1x4-bstream-reg3.cpp
+        sme/experimental/v4/sme-1x4-bstream-ilv2.cpp
+        sme/experimental/v4/sme-1x4-bstream-ilv1.cpp
+        sme/experimental/v4/sme-1x4-bstream-ilv4.cpp
+        sme/experimental/v4/sme-1x4-bstream-v3sched.cpp
+            sme/experimental/v4/sme-1x4-bstream-ilv2.cpp
+            sme/experimental/v4/sme-1x4-bstream-ilv1.cpp
+        sme/experimental/v4/sme-1x4-bstream-ilv4.cpp
+        sme/experimental/v4/sme-1x4-bstream-v3sched.cpp
+            sme/experimental/v4/sme-1x4-bstream-ilv4.cpp
+        sme/experimental/v4/sme-1x4-bstream-v3sched.cpp
+            sme/experimental/v4/sme-1x4-bstream-v3sched.cpp
             sme/support/gemm_tuning.cpp
     )
     target_compile_options(energy_bench PRIVATE
@@ -391,3 +443,132 @@ target_link_libraries(matmul PRIVATE
         ${LIBOMP_LIBRARY}
         "-framework Accelerate"
 )
+
+# -----------------------------------------------------------------------------
+# MaxMulSK vs MpGEMM (https://github.com/mpgemm/MPGEMM). Not vendored: point
+# MAXMULSK_MPGEMM_DIR at a checkout whose src/ has been built with `make`.
+# -----------------------------------------------------------------------------
+set(MAXMULSK_MPGEMM_DIR "$ENV{HOME}/src/MPGEMM" CACHE PATH "MPGEMM checkout")
+if(EXISTS "${MAXMULSK_MPGEMM_DIR}/src/libmatmul.a")
+    add_executable(bench_vs_mpgemm
+        bench/bench_vs_mpgemm.cpp
+        sme/v3/sme-1x4-acc-kcout.cpp
+        sme/v3/sme-2x2-acc-kcout.cpp
+        sme/v3/sme-4x1-acc-kcout.cpp
+        sme/support/gemm_tuning.cpp)
+    target_compile_options(bench_vs_mpgemm PRIVATE -march=armv8.7-a+sme+sme2)
+    target_include_directories(bench_vs_mpgemm PRIVATE ${CMAKE_SOURCE_DIR} "${MAXMULSK_MPGEMM_DIR}/src")
+    target_link_libraries(bench_vs_mpgemm PRIVATE "${MAXMULSK_MPGEMM_DIR}/src/libmatmul.a" "-framework Accelerate")
+else()
+    message(STATUS "MPGEMM not found at ${MAXMULSK_MPGEMM_DIR}; skipping bench_vs_mpgemm")
+endif()
+
+# -----------------------------------------------------------------------------
+# bench_f2_vs_r0 — experiment F2 against the v3 reference at F2's target shape.
+# -----------------------------------------------------------------------------
+if(EXISTS "${MAXMULSK_MPGEMM_DIR}/src/libmatmul.a")
+    add_executable(bench_f2_vs_r0
+        bench/bench_f2_vs_r0.cpp
+        sme/v3/sme-1x4-acc-kcout.cpp
+        sme/v4/sme-1x4-kcout-mc16-apack4za-bonce.cpp
+        sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-zapres.cpp
+        sme/support/gemm_tuning.cpp)
+    target_compile_options(bench_f2_vs_r0 PRIVATE -march=armv8.7-a+sme+sme2)
+    target_include_directories(bench_f2_vs_r0 PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(bench_f2_vs_r0 PRIVATE "${MAXMULSK_MPGEMM_DIR}/src/libmatmul.a" "-framework Accelerate")
+else()
+    message(STATUS "MPGEMM not found; skipping bench_f2_vs_r0")
+endif()
+
+# -----------------------------------------------------------------------------
+# bench_v4_sweep — v3 / generalised v4 / Accelerate / MpGEMM over the whole table
+# -----------------------------------------------------------------------------
+if(EXISTS "${MAXMULSK_MPGEMM_DIR}/src/libmatmul.a")
+    add_executable(bench_v4_sweep
+        bench/bench_v4_sweep.cpp
+        sme/v3/sme-1x4-acc-kcout.cpp
+        sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-gen.cpp
+        sme/support/gemm_tuning.cpp)
+    target_compile_options(bench_v4_sweep PRIVATE -march=armv8.7-a+sme+sme2)
+    target_include_directories(bench_v4_sweep PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/bench)
+    target_link_libraries(bench_v4_sweep PRIVATE "${MAXMULSK_MPGEMM_DIR}/src/libmatmul.a" "-framework Accelerate")
+endif()
+
+# -----------------------------------------------------------------------------
+# bench_nb_sweep — Nc/Mc/Kc parameter sweep for the Nc-blocked v4 variant
+# -----------------------------------------------------------------------------
+add_executable(bench_nb_sweep
+    bench/bench_nb_sweep.cpp
+    sme/v3/sme-1x4-acc-kcout.cpp
+    sme/v4/sme-1x4-kcout-ncblock-apack4za.cpp
+    sme/support/gemm_tuning.cpp)
+target_compile_options(bench_nb_sweep PRIVATE -march=armv8.7-a+sme+sme2)
+target_include_directories(bench_nb_sweep PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/bench)
+
+# -----------------------------------------------------------------------------
+# bench_final5 — v3 / v4@16-512-2048 / v4@32-1024-2048 / MpGEMM / Accelerate
+# -----------------------------------------------------------------------------
+if(EXISTS "${MAXMULSK_MPGEMM_DIR}/src/libmatmul.a")
+    add_executable(bench_final5
+        bench/bench_final5.cpp
+        sme/v3/sme-1x4-acc-kcout.cpp
+        sme/v4/sme-1x4-kcout-ncblock-apack4za.cpp
+        sme/support/gemm_tuning.cpp)
+    target_compile_options(bench_final5 PRIVATE -march=armv8.7-a+sme+sme2)
+    target_include_directories(bench_final5 PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/bench)
+    target_link_libraries(bench_final5 PRIVATE "${MAXMULSK_MPGEMM_DIR}/src/libmatmul.a" "-framework Accelerate")
+endif()
+
+# -----------------------------------------------------------------------------
+# bench_v4c3 — Accelerate / v4c (shape-driven two-profile choice) / MpGEMM
+# -----------------------------------------------------------------------------
+if(EXISTS "${MAXMULSK_MPGEMM_DIR}/src/libmatmul.a")
+    add_executable(bench_v4c3
+        bench/bench_v4c3.cpp
+        sme/v3/sme-1x4-acc-kcout.cpp
+        sme/v4/sme-1x4-kcout-ncblock-apack4za.cpp
+        sme/v4/sme-1x4-v4c-dispatch.cpp
+        sme/support/gemm_tuning.cpp)
+    target_compile_options(bench_v4c3 PRIVATE -march=armv8.7-a+sme+sme2)
+    target_include_directories(bench_v4c3 PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/bench ${CMAKE_SOURCE_DIR}/sme/v4)
+    target_link_libraries(bench_v4c3 PRIVATE "${MAXMULSK_MPGEMM_DIR}/src/libmatmul.a" "-framework Accelerate")
+endif()
+
+add_executable(bench_isoprod
+    bench/bench_isoprod.cpp
+    sme/v3/sme-1x4-acc-kcout.cpp
+    sme/v4/sme-1x4-kcout-ncblock-apack4za.cpp
+    sme/support/gemm_tuning.cpp)
+target_compile_options(bench_isoprod PRIVATE -march=armv8.7-a+sme+sme2)
+target_include_directories(bench_isoprod PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/bench)
+
+if(EXISTS "${MAXMULSK_MPGEMM_DIR}/src/libmatmul.a")
+    add_executable(bench_general3
+        bench/bench_general3.cpp
+        sme/v3/sme-1x4-acc-kcout.cpp
+        sme/v4/sme-1x4-kcout-ncblock-apack4za.cpp
+        sme/v4/sme-1x4-v4c-dispatch.cpp
+        sme/v4/sme-1x4-general.cpp
+        sme/support/gemm_tuning.cpp)
+    target_compile_options(bench_general3 PRIVATE -march=armv8.7-a+sme+sme2)
+    target_include_directories(bench_general3 PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/bench ${CMAKE_SOURCE_DIR}/sme/v4)
+    target_link_libraries(bench_general3 PRIVATE "${MAXMULSK_MPGEMM_DIR}/src/libmatmul.a" "-framework Accelerate")
+endif()
+
+add_executable(bench_isoprod2
+    bench/bench_isoprod2.cpp
+    sme/v3/sme-1x4-acc-kcout.cpp
+    sme/v4/sme-1x4-kcout-ncblock-apack4za.cpp
+    sme/support/gemm_tuning.cpp)
+target_compile_options(bench_isoprod2 PRIVATE -march=armv8.7-a+sme+sme2)
+target_include_directories(bench_isoprod2 PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/bench)
+
+add_executable(bench_panelfuse
+    bench/bench_panelfuse.cpp
+    sme/v3/sme-1x4-acc-kcout.cpp
+    sme/v4/sme-1x4-kcout-ncblock-apack4za.cpp
+    sme/v4/sme-1x4-v4c-dispatch.cpp
+    sme/v4/sme-1x4-panelfuse.cpp
+    sme/support/gemm_tuning.cpp)
+target_compile_options(bench_panelfuse PRIVATE -march=armv8.7-a+sme+sme2)
+target_include_directories(bench_panelfuse PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/bench ${CMAKE_SOURCE_DIR}/sme/v4)

@@ -1,0 +1,154 @@
+diff --git a/sme/support/gemm_tuning.cpp b/sme/support/gemm_tuning.cpp
+index 9c2a7c6..b677421 100644
+--- a/sme/support/gemm_tuning.cpp
++++ b/sme/support/gemm_tuning.cpp
+@@ -10,28 +10,58 @@ namespace {
+ struct Entry {
+     size_t   min_side;   // applies to square shapes with M == K == N >= this
+     Blocking blocking;
+-    const char* provenance;
+ };
+ 
+-// Ordered largest-first; the first match wins.
+-//
+-// Measured 2026-09-09 on Apple M4, single thread, 1x4-Acc-KcOut, median of
+-// three runs with 90 s cooldowns between them. The margin quoted is against
+-// the default on the same three runs.
++// Shipped defaults, one per geometry. These are the tile sizes each kernel was
++// written with; the tables below only override them where a measurement earned
++// it.
++constexpr Blocking kDefault1x4{1024,   64, 2048, false};
++constexpr Blocking kDefault2x2{  64,  512, 2048, false};
++constexpr Blocking kDefault4x1{  64, 1024, 2048, false};
++
++// -----------------------------------------------------------------------
++// 1x4, measured 2026-09-09. Median of three runs with 90 s cooldowns.
+ //
+ // A caveat worth carrying: at 2048^3 the DEFAULT is what is unstable, not the
+ // entry. Its three runs were 1278 / 1297 / 1505 GFLOP/s while the entry gave
+ // 1492 / 1506 / 1542. So the entry is not reliably 16% faster; it reliably
+ // reaches what the default only sometimes reaches. Why the default is bimodal
+ // there is not established.
+-constexpr Entry kTable[] = {
+-    { 4096, { 2048, 512, 4096, true }, "2026-09-09, +6.0% median of 3 (1541 -> 1634)" },
+-    { 2048, { 1024, 512, 2048, true }, "2026-09-09, +16.1% median of 3 (1297 -> 1506)" },
++//
++// Nothing above 4096^3 was measured, so the 4096 row is an extrapolation for
++// larger squares. If that band starts to matter, measure it.
++// -----------------------------------------------------------------------
++constexpr Entry kTable1x4[] = {
++    { 4096, { 2048, 512, 4096, true } },   // +6.0% median of 3 (1541 -> 1634)
++    { 2048, { 1024, 512, 2048, true } },   // +16.1% median of 3 (1297 -> 1506)
++};
++
++// -----------------------------------------------------------------------
++// 2x2, measured 2026-09-09. Swept 28 to 264 configurations per shape, then the
++// shortlist re-measured over three runs with cooldowns.
++//
++// One axis carried the whole result: N_tile 512 -> 1024. The sweep's own picks
++// added M_tile and the jr/ir swap on top, but re-running showed those worth at
++// most ~1%, inside the noise, and the plain N_tile change was the more stable
++// of the two at 2048^3 (run spread 2.6% against 5.5%). So the entry changes one
++// parameter, which is also the one that can be explained.
++//
++// Below 2048^3 the default already wins or ties: at 1024^3 the best
++// configuration out of 132 was +0.6%.
++// -----------------------------------------------------------------------
++constexpr Entry kTable2x2[] = {
++    { 2048, { 64, 1024, 2048, false } },   // +10.6% at 2048^3, +13.9% at 4096^3
+ };
+ 
+-// >= 4096 uses the 4096 entry, which is an EXTRAPOLATION: nothing above 4096^3
+-// was measured. If that band starts to matter, measure it rather than trusting
+-// this row.
++// 4x1: swept the same way on 2026-09-09 and left empty on purpose. Its shipped
++// 64/1024/2048 came first out of 21 and 36 configurations at 256^3 and 512^3,
++// and never lost by more than 0.3% anywhere else. There is nothing to override.
++//
++// That sweep did find something else: pack_A addressed only one 4-panel group,
++// so every M_tile above 64 returned silently wrong results. Fixed in
++// sme/v3/sme-4x1-acc-kcout.cpp; the same latent bug still sits in the v1 kernel,
++// where M_tile is fixed at 64 and never triggers it.
++constexpr Entry kTable4x1[] = {};
+ 
+ bool parse_env(Blocking& out) {
+     const char* s = std::getenv("MAXMULSK_BLOCKING");
+@@ -48,16 +78,23 @@ bool parse_env(Blocking& out) {
+ 
+ }  // namespace
+ 
+-Blocking select_from_table(size_t M, size_t K, size_t N) {
+-    Blocking b{};                       // the default
++Blocking select_from_table(Kernel k, size_t M, size_t K, size_t N) {
++    const Entry* table = nullptr;
++    size_t count = 0;
++    Blocking b{};
++    switch (k) {
++        case Kernel::Sme1x4KcOut: b = kDefault1x4; table = kTable1x4; count = 2; break;
++        case Kernel::Sme2x2KcOut: b = kDefault2x2; table = kTable2x2; count = 1; break;
++        case Kernel::Sme4x1KcOut: b = kDefault4x1; table = kTable4x1; count = 0; break;
++    }
+     if (M != K || K != N) return b;     // square shapes only
+-    for (const Entry& e : kTable)
+-        if (M >= e.min_side) return e.blocking;
++    for (size_t i = 0; i < count; i++)
++        if (M >= table[i].min_side) return table[i].blocking;
+     return b;
+ }
+ 
+-Blocking select(size_t M, size_t K, size_t N) {
+-    Blocking b = select_from_table(M, K, N);
++Blocking select(Kernel k, size_t M, size_t K, size_t N) {
++    Blocking b = select_from_table(k, M, K, N);
+     parse_env(b);                       // override wins if present and well-formed
+     return b;
+ }
+diff --git a/sme/support/gemm_tuning.hpp b/sme/support/gemm_tuning.hpp
+index 161c5de..6048d0a 100644
+--- a/sme/support/gemm_tuning.hpp
++++ b/sme/support/gemm_tuning.hpp
+@@ -27,9 +27,16 @@
+ 
+ namespace MaxMulSK::tuning {
+ 
++// Which v3 kernel the blocking is for. The three geometries have different
++// output tiles (1x4 is SVL x 4*SVL, 2x2 is 2*SVL x 2*SVL, 4x1 is 4*SVL x SVL),
++// so N_tile has a different legal granularity in each and a value that helps
++// one can be illegal or harmful in another. They get separate defaults and
++// separate tables; nothing measured on one is applied to another.
++enum class Kernel { Sme1x4KcOut, Sme2x2KcOut, Sme4x1KcOut };
++
+ struct Blocking {
+     size_t M_tile   = 1024;
+-    size_t N_tile   = 64;     // must be a multiple of N_step = 4*SVL
++    size_t N_tile   = 64;     // must be a multiple of that kernel's N_step
+     size_t Kc       = 2048;   // outer K panel
+     bool   ir_outer = false;  // swap the jr/ir nest; only meaningful when
+                               // N_tile > N_step
+@@ -41,10 +48,10 @@ struct Blocking {
+ //
+ // MAXMULSK_BLOCKING="M_tile,N_tile,Kc,ir_outer" overrides everything, so a
+ // sweep can be driven without recompiling. Malformed values are ignored.
+-Blocking select(size_t M, size_t K, size_t N);
++Blocking select(Kernel k, size_t M, size_t K, size_t N);
+ 
+ // What select() would return with the environment override ignored. Exposed so
+ // a benchmark can report the table's own choice separately from an override.
+-Blocking select_from_table(size_t M, size_t K, size_t N);
++Blocking select_from_table(Kernel k, size_t M, size_t K, size_t N);
+ 
+ }  // namespace MaxMulSK::tuning
+diff --git a/sme/v3/sme-1x4-acc-kcout.cpp b/sme/v3/sme-1x4-acc-kcout.cpp
+index fb22f6a..69edbde 100644
+--- a/sme/v3/sme-1x4-acc-kcout.cpp
++++ b/sme/v3/sme-1x4-acc-kcout.cpp
+@@ -550,7 +550,8 @@ namespace SMEKernels1x4AccKcOut {
+     void run_multiplication(const float* A, const float* B, float* C,
+                             size_t M, size_t K, size_t N) {
+         run_multiplication_blocked(A, B, C, M, K, N,
+-                                   MaxMulSK::tuning::select(M, K, N));
++                                   MaxMulSK::tuning::select(
++                                       MaxMulSK::tuning::Kernel::Sme1x4KcOut, M, K, N));
+     }
+ 
+ } // namespace SMEKernels1x4AccKcOut

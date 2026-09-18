@@ -1,0 +1,65 @@
+# sha256 of every source in the measured binary, plus the binary itself.
+# Reproduce R0 by applying source/tracked-relevant.diff to the files at
+# base_commit, then adding the untracked sources copied into source/.
+
+## tracked, as modified in the working tree  (diff: source/tracked-relevant.diff)
+e4105023aed72d8a70ab1b54a05fdf130de963c139ebbc537fc5efc3b5cb1ed1  sme/v3/sme-1x4-acc-kcout.cpp
+9ba452d5236d1d879c44e2f9c5fbaa27f1b9deac334ef6cff6ec2c189b28e7ad  sme/v3/sme-1x4-acc-kcout.hpp
+bc0763e07bb6cf9b6c4814c6881a7fd66ece36b12b940c5d1ad01ad37b4a202f  sme/support/gemm_tuning.cpp
+1fabe56fe30aa7895b63eda2f1fe06dac50722050ce7a3022a15afa257e75312  sme/support/gemm_tuning.hpp
+
+## same four files at base_commit 8f1ec86, so the diff can be checked
+61e5bfda366f203867514d2501f5dce84875513e2e02e91cf60ada1018740dde  sme/v3/sme-1x4-acc-kcout.cpp@8f1ec86
+9ba452d5236d1d879c44e2f9c5fbaa27f1b9deac334ef6cff6ec2c189b28e7ad  sme/v3/sme-1x4-acc-kcout.hpp@8f1ec86
+73ef1d6490a4ac9ee9201a14bd2c016f0377f9749084db4ba6b2b1c011ea0d0c  sme/support/gemm_tuning.cpp@8f1ec86
+3cfd5211d74d33ea6e12877cce8af6c1da2a7a9c6e6ccbbb57bbe87495f89308  sme/support/gemm_tuning.hpp@8f1ec86
+
+## new, untracked  (full copies in source/)
+0176871ebe178335e733cb713e50a43bdb07f8483d836045d1b0342ed663a73e  sme/v4/sme-1x4-kcout-mc16-apack4za-bonce.cpp
+b256b05f8c1e388c04826daf9f9e0c1a9bf815be3e91f040db4ded6cde680fdf  sme/v4/sme-1x4-kcout-mc16-apack4za-bonce.hpp
+0e281acadc65e5d60f73cc65fa4707fba604fd919526a135fc235ffed2fdb665  sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-zapres.cpp
+bd83a9b8412e38c4339bd340ffb624b209a72ef976e7299b8b3567029b6d092e  sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-zapres.hpp
+af49bd72460a1a5d37809536bdf579359a119e8b3252cf92ba9d22c273793831  bench/bench_f2_vs_r0.cpp
+
+## build
+905c1ccb553c54d4e592f5316e06591f9810381f91842ce27c2b7c3e9f83c67a  CMakeLists.txt
+
+## measured binary (f2_zapres_3way.csv, f2_5way.csv)
+9e4e045716da849c2642d962193013b6b0462506885e70b02a45d69879a35df5  cmake-build-release/bench_f2_vs_r0
+
+## added 2026-09-13 for the full-table sweep (v4_sweep.csv)
+f5b60667decaf278d18dc32bfc388dbaaec1ba009ce71357c6ceedf1f3325bad  sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-gen.cpp
+a39f750c7dfd78d07ff5a2951f2b7e3021f3a89cf942351b4f88dba1a07d8d85  sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-gen.hpp
+25cce4569d2946815e934a26bc185e618da8645d2dbbe55df50a104576c0795f  bench/bench_v4_sweep.cpp
+c471a62dbfef7d144920ff3b2e682061e57885ecbe19b1334fb1270e5091a4b7  bench/bench_sweep_shapes.h
+fd30d5f90aee4f97e3446fcacf76f08c5ed3ea612dde78786b6cd7cb6573a512  bench/summarize_v4_sweep.py
+023b0e6c3ef9ad71599e7011be039bd20a6c1202c4810f430e2328de654891f9  cmake-build-release/bench_v4_sweep
+
+## added 2026-09-13 for the Nc/Mc/Kc parameter sweep (nb_sweep.csv)
+546284d4512ed715d58bbf7c14fed27a6ea74d8706537d3456d50ddee9f0df21  sme/v4/sme-1x4-kcout-ncblock-apack4za.cpp
+9aa66bc1c65c3cb8453f783685237bf70d0264b7040669d1fbe24f6c3d4a9c4c  sme/v4/sme-1x4-kcout-ncblock-apack4za.hpp
+d0e1235afdd758876fde78f1f6f90bde69b514f240f3a0abb9f09b1c411c0d24  bench/bench_nb_sweep.cpp
+39ce019977e1ad46998806e2dd497d70051e5a22e13271de157982219346e652  bench/summarize_nb_sweep.py
+9ca7ad16d81603dcb8d5596afbb9e88ecf1592a699d1696e84b4a51461069540  cmake-build-release/bench_nb_sweep
+
+## added 2026-09-13, extended-axis sweep (nb_sweep_ext.csv)
+e44e298a9576ad913a8105c9a1cc9779e09cb5d380e68d2011ea47c11c9d9c9c  bench/bench_nb_sweep.cpp
+841205e578851ca25fd63cd71884e118c912c47efeeff87fa619dd2af43d2217  cmake-build-release/bench_nb_sweep
+
+## added 2026-09-13, five-way comparison on common conditions (final5.csv)
+d9a2ede965fa178b54783ee4a4cb53b20aa405d01da22f28fbf11bffc7481cf7  bench/bench_final5.cpp
+6d2b4b867dec1f60a663d73341337c4019cbd1699382f8b94b8f901bfff642f6  bench/summarize_final5.py
+9b4734f4bf0f747f8fdf5e87d8ffc9f3cbdf573a7dae62ec3504efb1d4bf6ffb  cmake-build-release/bench_final5
+
+## added 2026-09-13, v4c three-way (v4c3.csv)
+5f52e0c993f8b70d021d4af191c64dd3f2b4fa1c27f647f682ed138d08d39c04  sme/v4/sme-1x4-v4c-dispatch.cpp
+9de8665006cbf3ea55ce5ec164329fbf8a365cad1607d37636084d7e6b91d495  sme/v4/sme-1x4-v4c-dispatch.hpp
+b262ba416adfa9e2ae633f574555b85749f4818fd61e949c9ee36ff111986c0b  bench/bench_v4c3.cpp
+e795ada675d913e73c0370979d5fd9b78663c884e7fa0d2b41e73cba01a845cb  bench/summarize_v4c3.py
+02e82c351d47293fa37a64a5915ad6ced9a77624a776794e7406a93f06494056  cmake-build-release/bench_v4c3
+# unchanged, and verified so: the kernel TU measured in final5.csv
+546284d4512ed715d58bbf7c14fed27a6ea74d8706537d3456d50ddee9f0df21  sme/v4/sme-1x4-kcout-ncblock-apack4za.cpp
+
+## added 2026-09-13, constant-product blocking family (isoprod.csv)
+20373fbe567d3a7899af5cc3f261f87e8b56900de705489b02ae11bdc83d30c6  bench/bench_isoprod.cpp
+c34ad75c8873b9584eeb7750e78fd8bde8d1b1f79ab70b802014058ca085647d  cmake-build-release/bench_isoprod

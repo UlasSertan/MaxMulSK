@@ -1,4 +1,4 @@
-#include "sme-1x4-acc-kcout.hpp"
+#include "sme-1x4-acc-kcout-small.hpp"
 
 #include <arm_sme.h>
 #include <arm_sve.h>
@@ -26,7 +26,7 @@
 // the same-tile gap stays 4 slots wide, matching 4x1.
 // =============================================================================
 
-namespace SMEKernels1x4AccKcOut {
+namespace SMEKernels1x4AccKcOutSmall {
 
     // =========================================================================
     // PACK A  (M x K) -> single-panel layout (GS = SVL)
@@ -389,7 +389,9 @@ namespace SMEKernels1x4AccKcOut {
     // removed, deliberately reintroduced -- but paid K/Kc-1 times per tile
     // instead of once per K_tile, which is the trade the outer loop is making.
     // =========================================================================
-    __attribute__((noinline))
+    // Unused while the K panel loop is out: with a single pass over K the store
+    // always overwrites. Kept for when panelling comes back.
+    [[maybe_unused]] __attribute__((noinline))
     static void store_za_add(float* RESTRICT C, size_t wide_of_C) __arm_in("za") __arm_streaming {
         const size_t SVL = static_cast<size_t>(svcntsw());
         const svbool_t pg = svptrue_b32();
@@ -428,121 +430,283 @@ namespace SMEKernels1x4AccKcOut {
                                     MaxMulSK::tuning::Blocking blk) {
         const size_t SVL = static_cast<size_t>(svcntsw());
 
-        const size_t M_tile = blk.M_tile;
-        const size_t N_tile = blk.N_tile;
-        // K_tile is pinned to Kc, so the inner k loop is one call per panel.
-        // That is what the shipped defaults already did (both 2048); keeping
-        // them tied leaves one fewer knob to justify.
-        const size_t K_tile = blk.Kc;
+        // EXPERIMENTAL, not measured: all three tiles pinned to 256 by hand.
+        // blk.M_tile / N_tile / Kc are ignored here on purpose; blk.ir_outer is
+        // still honoured. Nothing has been swept at this setting, so treat any
+        // number this kernel produces as a probe, not a result.
+        (void)blk;   // ir_outer had only the jr walk to reorder
+        const size_t M_tile = 256; (void)M_tile;
+        const size_t N_tile = 256; (void)N_tile;  // n now steps by N_step
+        const size_t K_tile = 256; (void)K_tile;   // inner k loop removed
 
         const size_t M_step = 1 * SVL;
         const size_t N_step = 4 * SVL;
 
-        // OUTER K PANEL -- the change that defines this variant.
-        //
-        // The whole M x N sweep now runs once per Kc slice of K, so the packed
-        // buffers scale with Kc instead of with K. That is the entire point:
-        // keep the packed working set inside L2 when K is large. The price is
-        // that every C tile is revisited K/Kc times instead of once.
-        //
-        // Kc is a tuning knob, not a correctness one. 2048 matches K_tile, so at
-        // this setting the inner k loop degenerates to one call per panel.
-        const size_t Kc = blk.Kc;
+        // Kc no longer drives anything: the outer K panel loop it existed for
+        // has been removed, so it is kept only as a record of the setting.
+        const size_t Kc = 256; (void)Kc;
 
+        // Sized to K: with the outer K panel gone, A panel ir starts at ir*K.
+        // M is rounded up to M_step because pack_A consumes a whole SVL-row
+        // block even when the last one is partial.
+        const size_t M_padded = ((M + M_step - 1) / M_step) * M_step;
         AlignedBuffer packed_A(static_cast<float*>(
-            std::aligned_alloc(64, M_tile * Kc * sizeof(float))));
-        AlignedBuffer packed_B(static_cast<float*>(
-            std::aligned_alloc(64, N_tile * Kc * sizeof(float))));
+            std::aligned_alloc(64, M_padded * K * sizeof(float))));
 
-        AlignedBuffer C_scratch(static_cast<float*>(
-            std::aligned_alloc(64, M_step * N_step * sizeof(float))));
+        // B is NEVER pre-packed. This is a staging buffer holding GRP k-steps of
+        // one 4-panel group: GRP * N_step floats = 1 KB. The producer fills it
+        // from B at stride N, the consumer reads it back contiguously, then it is
+        // overwritten. Nothing outside the current tile ever reads it, so it does
+        // not grow with M, K or N. Two slots are allocated; the single-buffered
+        // entry point uses only the first.
+        const size_t GS_B = N_step;          // floats per k-step of B
+        const size_t GRP  = 4;               // k-steps per staging group
+        AlignedBuffer stage(static_cast<float*>(
+            std::aligned_alloc(64, 2 * GRP * GS_B * sizeof(float))));
 
-        for (size_t kk = 0; kk < K; kk += Kc) {
-            const size_t kcl = std::min(Kc, K - kk);
+        const svbool_t  pg  = svptrue_b32();
+        const svcount_t pg4 = svptrue_c32();
 
-            // Only the first K panel may overwrite C; later panels fold into
-            // what the earlier ones left. The kernel as a whole still computes
-            // C = A*B, so the caller must NOT pre-zero C -- same contract as
-            // 1x4-Acc, even though C is now touched more than once.
-            const bool first_k = (kk == 0);
+        // A is packed once, in full, before any loop runs.
+        pack_A_streaming(A, packed_A.get(), M, K, 0, 0, K);
 
-            for (size_t m = 0; m < M; m += M_tile) {
-                size_t mc = std::min(M_tile, M - m);
-                pack_A_streaming(A, packed_A.get(), mc, kcl, m, kk, K);
+        const size_t K_main = (K / GRP) * GRP;
 
-                for (size_t n = 0; n < N; n += N_tile) {
-                    size_t nc = std::min(N_tile, N - n);
-                    pack_B_streaming(B, packed_B.get(), nc, kcl, kk, N, n);
+        for (size_t n = 0; n < N; n += N_step) {
+            for (size_t ir = 0; ir < M; ir += M_step) {
+                const float* pA   = packed_A.get() + ir * K;
+                const float* bsrc = B + n;
+                float* cur = stage.get();
+                float* nxt = stage.get() + GRP * GS_B;
 
-                    // The (jr, ir) grid is walked through a flat index so the
-                    // nesting order is a runtime choice without duplicating the
-                    // tile body. blk.ir_outer swaps which packed panel stays
-                    // resident in the inner loop; it can only matter when
-                    // N_tile > N_step, since otherwise jr has a single point.
-                    const size_t n_jr = (nc + N_step - 1) / N_step;
-                    const size_t n_ir = (mc + M_step - 1) / M_step;
+                svzero_za();
+                if (K_main >= GRP) {
+                    // PROLOGUE: fill slot 0. Nothing to hide this behind yet.
+                    // PRODUCER: GRP k-steps of B. Four independent strided loads issued
+                    // back to back so the memory system sees four misses at once, then
+                    // four contiguous stores. This is pack_B_streaming's inner body,
+                    // marched in step with the compute instead of run as its own pass.
+                    svfloat32x4_t t0 = svld1_f32_x4(pg4, bsrc + 0 * N);
+                    svfloat32x4_t t1 = svld1_f32_x4(pg4, bsrc + 1 * N);
+                    svfloat32x4_t t2 = svld1_f32_x4(pg4, bsrc + 2 * N);
+                    svfloat32x4_t t3 = svld1_f32_x4(pg4, bsrc + 3 * N);
+                    svst1_f32_x4(pg4, cur + 0 * GS_B, t0);
+                    svst1_f32_x4(pg4, cur + 1 * GS_B, t1);
+                    svst1_f32_x4(pg4, cur + 2 * GS_B, t2);
+                    svst1_f32_x4(pg4, cur + 3 * GS_B, t3);
+                    bsrc += GRP * N;
 
-                    for (size_t t = 0; t < n_jr * n_ir; t++) {
-                        const size_t jr = (blk.ir_outer ? (t % n_jr) : (t / n_ir)) * N_step;
-                        const size_t ir = (blk.ir_outer ? (t / n_jr) : (t % n_ir)) * M_step;
-                        const size_t n_rem = nc - jr;
-                        const size_t m_rem = mc - ir;
+                    // STEADY: consume cur while filling nxt, then swap. The last
+                    // full group has no successor to produce, so it is peeled off
+                    // below rather than guarded by a branch in here.
+                    for (size_t k = 0; k + GRP < K_main; k += GRP) {
+                        svfloat32x4_t a_x4 = svld1_f32_x4(pg4, pA); pA += GRP * SVL;
+                        svfloat32_t a0 = svget4_f32(a_x4, 0);
+                        svfloat32_t a1 = svget4_f32(a_x4, 1);
+                        svfloat32_t a2 = svget4_f32(a_x4, 2);
+                        svfloat32_t a3 = svget4_f32(a_x4, 3);
 
-                        // Panel bases computed once per tile rather than rebuilt
-                        // at the call site. Measured 2026-09-09: no performance
-                        // effect (-2.6% to +2.0%, no consistent direction) -- -O3
-                        // already did it. Kept because it states the invariant.
-                        float* const pB_base = packed_B.get() + jr * kcl;
-                        float* const pA_base = packed_A.get() + ir * kcl;
-                        {
-
-                            bool m_tail = m_rem < M_step;
-                            bool n_tail = n_rem < N_step;
-
-                            // Packed panels are kcl deep now, so the per-tile
-                            // stride is ir * kcl / jr * kcl, not ir * K.
-                            svzero_za();
-                            for (size_t k = 0; k < kcl; k += K_tile) {
-                                size_t kc = std::min(K_tile, kcl - k);
-                                micro_kernel_1x4(pA_base + k * SVL,
-                                                 pB_base + k * N_step,
-                                                 kc);
-                            }
-
-                            if (!m_tail && !n_tail) {
-                                float* dst = C + (m + ir) * N + (n + jr);
-                                if (first_k) store_za(dst, N);
-                                else         store_za_add(dst, N);
-                            } else {
-                                size_t rows = std::min(m_rem, M_step);
-                                size_t cols = std::min(n_rem, N_step);
-
-                                store_za(C_scratch.get(), N_step);
-
-                                // Predicated SVE, never a scalar copy: a scalar
-                                // loop here gets recognised as memcpy and
-                                // lowered to __arm_sc_memcpy, which has no
-                                // implementation in streaming mode (BUG-5).
-                                float* C_dst = C + (m + ir) * N + (n + jr);
-                                const float* src = C_scratch.get();
-                                for (size_t row = 0; row < rows; row++) {
-                                    const float* sp = src + row * N_step;
-                                    float* dst_row = C_dst + row * N;
-                                    for (size_t col = 0; col < cols; col += SVL) {
-                                        svbool_t pg_c = svwhilelt_b32_u64(col, cols);
-                                        svfloat32_t v = svld1_f32(pg_c, sp + col);
-                                        if (!first_k)
-                                            v = svadd_f32_x(pg_c, v,
-                                                            svld1_f32(pg_c, dst_row + col));
-                                        svst1_f32(pg_c, dst_row + col, v);
-                                    }
-                                }
-                            }
-                        }
+                        // k-step 0: consume cur, and slot the next group's k-step 0
+                        // producer pair between two svmopa so it rides the ZA pipeline.
+                        svfloat32x4_t c0 = svld1_f32_x4(pg4, cur + 0 * GS_B);
+                        svmopa_za32_f32_m(0, pg, pg, a0, svget4_f32(c0, 0));
+                        svmopa_za32_f32_m(1, pg, pg, a0, svget4_f32(c0, 1));
+                        svfloat32x4_t t0 = svld1_f32_x4(pg4, bsrc + 0 * N);
+                        svmopa_za32_f32_m(2, pg, pg, a0, svget4_f32(c0, 2));
+                        svmopa_za32_f32_m(3, pg, pg, a0, svget4_f32(c0, 3));
+                        // PACK STORE: two svmopa after its load, never adjacent to it.
+                        svst1_f32_x4(pg4, nxt + 0 * GS_B, t0);
+                        
+                        // k-step 1: consume cur, and slot the next group's k-step 1
+                        // producer pair between two svmopa so it rides the ZA pipeline.
+                        svfloat32x4_t c1 = svld1_f32_x4(pg4, cur + 1 * GS_B);
+                        svmopa_za32_f32_m(0, pg, pg, a1, svget4_f32(c1, 0));
+                        svmopa_za32_f32_m(1, pg, pg, a1, svget4_f32(c1, 1));
+                        svfloat32x4_t t1 = svld1_f32_x4(pg4, bsrc + 1 * N);
+                        svmopa_za32_f32_m(2, pg, pg, a1, svget4_f32(c1, 2));
+                        svmopa_za32_f32_m(3, pg, pg, a1, svget4_f32(c1, 3));
+                        // PACK STORE: two svmopa after its load, never adjacent to it.
+                        svst1_f32_x4(pg4, nxt + 1 * GS_B, t1);
+                        
+                        // k-step 2: consume cur, and slot the next group's k-step 2
+                        // producer pair between two svmopa so it rides the ZA pipeline.
+                        svfloat32x4_t c2 = svld1_f32_x4(pg4, cur + 2 * GS_B);
+                        svmopa_za32_f32_m(0, pg, pg, a2, svget4_f32(c2, 0));
+                        svmopa_za32_f32_m(1, pg, pg, a2, svget4_f32(c2, 1));
+                        svfloat32x4_t t2 = svld1_f32_x4(pg4, bsrc + 2 * N);
+                        svmopa_za32_f32_m(2, pg, pg, a2, svget4_f32(c2, 2));
+                        svmopa_za32_f32_m(3, pg, pg, a2, svget4_f32(c2, 3));
+                        // PACK STORE: two svmopa after its load, never adjacent to it.
+                        svst1_f32_x4(pg4, nxt + 2 * GS_B, t2);
+                        
+                        // k-step 3: consume cur, and slot the next group's k-step 3
+                        // producer pair between two svmopa so it rides the ZA pipeline.
+                        svfloat32x4_t c3 = svld1_f32_x4(pg4, cur + 3 * GS_B);
+                        svmopa_za32_f32_m(0, pg, pg, a3, svget4_f32(c3, 0));
+                        svmopa_za32_f32_m(1, pg, pg, a3, svget4_f32(c3, 1));
+                        svfloat32x4_t t3 = svld1_f32_x4(pg4, bsrc + 3 * N);
+                        svmopa_za32_f32_m(2, pg, pg, a3, svget4_f32(c3, 2));
+                        svmopa_za32_f32_m(3, pg, pg, a3, svget4_f32(c3, 3));
+                        // PACK STORE: two svmopa after its load, never adjacent to it.
+                        svst1_f32_x4(pg4, nxt + 3 * GS_B, t3);
+                        
+                        bsrc += GRP * N;
+                        float* swap = cur; cur = nxt; nxt = swap;
                     }
+
+                    // EPILOGUE: the last full group, consume only.
+                    svfloat32x4_t a_x4 = svld1_f32_x4(pg4, pA); pA += GRP * SVL;
+                    svfloat32_t a0 = svget4_f32(a_x4, 0);
+                    svfloat32_t a1 = svget4_f32(a_x4, 1);
+                    svfloat32_t a2 = svget4_f32(a_x4, 2);
+                    svfloat32_t a3 = svget4_f32(a_x4, 3);
+
+                    // CONSUMER: contiguous reads out of the staging buffer. Every one of
+                    // these hits L1 by construction -- the buffer is 1 KB and was written
+                    // a moment ago. Without the buffer these would be strided reads of B.
+                    svfloat32x4_t c0 = svld1_f32_x4(pg4, cur + 0 * GS_B);
+                    svmopa_za32_f32_m(0, pg, pg, a0, svget4_f32(c0, 0));
+                    svmopa_za32_f32_m(1, pg, pg, a0, svget4_f32(c0, 1));
+                    svmopa_za32_f32_m(2, pg, pg, a0, svget4_f32(c0, 2));
+                    svmopa_za32_f32_m(3, pg, pg, a0, svget4_f32(c0, 3));
+                    svfloat32x4_t c1 = svld1_f32_x4(pg4, cur + 1 * GS_B);
+                    svmopa_za32_f32_m(0, pg, pg, a1, svget4_f32(c1, 0));
+                    svmopa_za32_f32_m(1, pg, pg, a1, svget4_f32(c1, 1));
+                    svmopa_za32_f32_m(2, pg, pg, a1, svget4_f32(c1, 2));
+                    svmopa_za32_f32_m(3, pg, pg, a1, svget4_f32(c1, 3));
+                    svfloat32x4_t c2 = svld1_f32_x4(pg4, cur + 2 * GS_B);
+                    svmopa_za32_f32_m(0, pg, pg, a2, svget4_f32(c2, 0));
+                    svmopa_za32_f32_m(1, pg, pg, a2, svget4_f32(c2, 1));
+                    svmopa_za32_f32_m(2, pg, pg, a2, svget4_f32(c2, 2));
+                    svmopa_za32_f32_m(3, pg, pg, a2, svget4_f32(c2, 3));
+                    svfloat32x4_t c3 = svld1_f32_x4(pg4, cur + 3 * GS_B);
+                    svmopa_za32_f32_m(0, pg, pg, a3, svget4_f32(c3, 0));
+                    svmopa_za32_f32_m(1, pg, pg, a3, svget4_f32(c3, 1));
+                    svmopa_za32_f32_m(2, pg, pg, a3, svget4_f32(c3, 2));
+                    svmopa_za32_f32_m(3, pg, pg, a3, svget4_f32(c3, 3));
                 }
+                // K TAIL: the last K % GRP k-steps do not fill a group, so they
+                // bypass the staging buffer and read B directly.
+                for (size_t k = K_main; k < K; k++) {
+                    svfloat32_t   a = svld1_f32(pg, pA); pA += SVL;
+                    svfloat32x4_t b = svld1_f32_x4(pg4, bsrc); bsrc += N;
+                    svmopa_za32_f32_m(0, pg, pg, a, svget4_f32(b, 0));
+                    svmopa_za32_f32_m(1, pg, pg, a, svget4_f32(b, 1));
+                    svmopa_za32_f32_m(2, pg, pg, a, svget4_f32(b, 2));
+                    svmopa_za32_f32_m(3, pg, pg, a, svget4_f32(b, 3));
+                }
+                store_za(C + ir * N + n, N);
             }
         }
+    }
+
+    // Single-buffered variant: fill the whole group, then consume it. Producer
+    // and consumer do not overlap, so there is a sync point at every group
+    // boundary. Kept as the A/B control for the double-buffered driver above.
+    __arm_locally_streaming __arm_new("za")
+    __attribute__((noinline))
+    void run_multiplication_buf1_blocked(const float* A, const float* B, float* C,
+                                         size_t M, size_t K, size_t N) {
+        const size_t SVL = static_cast<size_t>(svcntsw());
+        const size_t M_step = 1 * SVL;
+        const size_t N_step = 4 * SVL;
+
+        // Sized to K: with the outer K panel gone, A panel ir starts at ir*K.
+        // M is rounded up to M_step because pack_A consumes a whole SVL-row
+        // block even when the last one is partial.
+        const size_t M_padded = ((M + M_step - 1) / M_step) * M_step;
+        AlignedBuffer packed_A(static_cast<float*>(
+            std::aligned_alloc(64, M_padded * K * sizeof(float))));
+
+        // B is NEVER pre-packed. This is a staging buffer holding GRP k-steps of
+        // one 4-panel group: GRP * N_step floats = 1 KB. The producer fills it
+        // from B at stride N, the consumer reads it back contiguously, then it is
+        // overwritten. Nothing outside the current tile ever reads it, so it does
+        // not grow with M, K or N. Two slots are allocated; the single-buffered
+        // entry point uses only the first.
+        const size_t GS_B = N_step;          // floats per k-step of B
+        const size_t GRP  = 4;               // k-steps per staging group
+        AlignedBuffer stage(static_cast<float*>(
+            std::aligned_alloc(64, 2 * GRP * GS_B * sizeof(float))));
+
+        const svbool_t  pg  = svptrue_b32();
+        const svcount_t pg4 = svptrue_c32();
+
+        // A is packed once, in full, before any loop runs.
+        pack_A_streaming(A, packed_A.get(), M, K, 0, 0, K);
+
+        const size_t K_main = (K / GRP) * GRP;
+
+        for (size_t n = 0; n < N; n += N_step) {
+            for (size_t ir = 0; ir < M; ir += M_step) {
+                const float* pA   = packed_A.get() + ir * K;
+                const float* bsrc = B + n;
+                float* const buf  = stage.get();
+
+                svzero_za();
+                for (size_t k = 0; k < K_main; k += GRP) {
+                    // PRODUCER: GRP k-steps of B. Four independent strided loads issued
+                    // back to back so the memory system sees four misses at once, then
+                    // four contiguous stores. This is pack_B_streaming's inner body,
+                    // marched in step with the compute instead of run as its own pass.
+                    svfloat32x4_t t0 = svld1_f32_x4(pg4, bsrc + 0 * N);
+                    svfloat32x4_t t1 = svld1_f32_x4(pg4, bsrc + 1 * N);
+                    svfloat32x4_t t2 = svld1_f32_x4(pg4, bsrc + 2 * N);
+                    svfloat32x4_t t3 = svld1_f32_x4(pg4, bsrc + 3 * N);
+                    svst1_f32_x4(pg4, buf + 0 * GS_B, t0);
+                    svst1_f32_x4(pg4, buf + 1 * GS_B, t1);
+                    svst1_f32_x4(pg4, buf + 2 * GS_B, t2);
+                    svst1_f32_x4(pg4, buf + 3 * GS_B, t3);
+                    bsrc += GRP * N;
+
+                    svfloat32x4_t a_x4 = svld1_f32_x4(pg4, pA); pA += GRP * SVL;
+                    svfloat32_t a0 = svget4_f32(a_x4, 0);
+                    svfloat32_t a1 = svget4_f32(a_x4, 1);
+                    svfloat32_t a2 = svget4_f32(a_x4, 2);
+                    svfloat32_t a3 = svget4_f32(a_x4, 3);
+
+                    // CONSUMER: contiguous reads out of the staging buffer. Every one of
+                    // these hits L1 by construction -- the buffer is 1 KB and was written
+                    // a moment ago. Without the buffer these would be strided reads of B.
+                    svfloat32x4_t c0 = svld1_f32_x4(pg4, buf + 0 * GS_B);
+                    svmopa_za32_f32_m(0, pg, pg, a0, svget4_f32(c0, 0));
+                    svmopa_za32_f32_m(1, pg, pg, a0, svget4_f32(c0, 1));
+                    svmopa_za32_f32_m(2, pg, pg, a0, svget4_f32(c0, 2));
+                    svmopa_za32_f32_m(3, pg, pg, a0, svget4_f32(c0, 3));
+                    svfloat32x4_t c1 = svld1_f32_x4(pg4, buf + 1 * GS_B);
+                    svmopa_za32_f32_m(0, pg, pg, a1, svget4_f32(c1, 0));
+                    svmopa_za32_f32_m(1, pg, pg, a1, svget4_f32(c1, 1));
+                    svmopa_za32_f32_m(2, pg, pg, a1, svget4_f32(c1, 2));
+                    svmopa_za32_f32_m(3, pg, pg, a1, svget4_f32(c1, 3));
+                    svfloat32x4_t c2 = svld1_f32_x4(pg4, buf + 2 * GS_B);
+                    svmopa_za32_f32_m(0, pg, pg, a2, svget4_f32(c2, 0));
+                    svmopa_za32_f32_m(1, pg, pg, a2, svget4_f32(c2, 1));
+                    svmopa_za32_f32_m(2, pg, pg, a2, svget4_f32(c2, 2));
+                    svmopa_za32_f32_m(3, pg, pg, a2, svget4_f32(c2, 3));
+                    svfloat32x4_t c3 = svld1_f32_x4(pg4, buf + 3 * GS_B);
+                    svmopa_za32_f32_m(0, pg, pg, a3, svget4_f32(c3, 0));
+                    svmopa_za32_f32_m(1, pg, pg, a3, svget4_f32(c3, 1));
+                    svmopa_za32_f32_m(2, pg, pg, a3, svget4_f32(c3, 2));
+                    svmopa_za32_f32_m(3, pg, pg, a3, svget4_f32(c3, 3));
+                }
+                // K TAIL: the last K % GRP k-steps do not fill a group, so they
+                // bypass the staging buffer and read B directly.
+                for (size_t k = K_main; k < K; k++) {
+                    svfloat32_t   a = svld1_f32(pg, pA); pA += SVL;
+                    svfloat32x4_t b = svld1_f32_x4(pg4, bsrc); bsrc += N;
+                    svmopa_za32_f32_m(0, pg, pg, a, svget4_f32(b, 0));
+                    svmopa_za32_f32_m(1, pg, pg, a, svget4_f32(b, 1));
+                    svmopa_za32_f32_m(2, pg, pg, a, svget4_f32(b, 2));
+                    svmopa_za32_f32_m(3, pg, pg, a, svget4_f32(b, 3));
+                }
+                store_za(C + ir * N + n, N);
+            }
+        }
+    }
+
+    void run_multiplication_buf1(const float* A, const float* B, float* C,
+                                 size_t M, size_t K, size_t N) {
+        run_multiplication_buf1_blocked(A, B, C, M, K, N);
     }
 
     // Public entry point: pick the blocking in normal mode, then enter
@@ -554,4 +718,78 @@ namespace SMEKernels1x4AccKcOut {
                                        MaxMulSK::tuning::Kernel::Sme1x4KcOut, M, K, N));
     }
 
-} // namespace SMEKernels1x4AccKcOut
+    // ---------------------------------------------------------------------
+    // CONTROL, no staging buffer at all: every tile reads B straight from
+    // memory at stride N and feeds the fmopa from registers. Identical tile
+    // walk and identical B traffic to the staged variants, minus the buffer.
+    // Exists only to separate "the buffer costs" from "losing the ir reuse
+    // costs" -- the two changes went in together and must be told apart.
+    // ---------------------------------------------------------------------
+    __arm_locally_streaming __arm_new("za")
+    __attribute__((noinline))
+    void run_multiplication_buf0_blocked(const float* A, const float* B, float* C,
+                                         size_t M, size_t K, size_t N) {
+        const size_t SVL = static_cast<size_t>(svcntsw());
+        const size_t M_step = 1 * SVL;
+        const size_t N_step = 4 * SVL;
+        const size_t GRP = 4;
+        const size_t M_padded = ((M + M_step - 1) / M_step) * M_step;
+        AlignedBuffer packed_A(static_cast<float*>(
+            std::aligned_alloc(64, M_padded * K * sizeof(float))));
+        const svbool_t  pg  = svptrue_b32();
+        const svcount_t pg4 = svptrue_c32();
+        pack_A_streaming(A, packed_A.get(), M, K, 0, 0, K);
+        const size_t K_main = (K / GRP) * GRP;
+
+        for (size_t n = 0; n < N; n += N_step) {
+            for (size_t ir = 0; ir < M; ir += M_step) {
+                const float* pA   = packed_A.get() + ir * K;
+                const float* bsrc = B + n;
+                svzero_za();
+                for (size_t k = 0; k < K_main; k += GRP) {
+                    svfloat32x4_t a_x4 = svld1_f32_x4(pg4, pA); pA += GRP * SVL;
+                    svfloat32_t a0 = svget4_f32(a_x4, 0);
+                    svfloat32_t a1 = svget4_f32(a_x4, 1);
+                    svfloat32_t a2 = svget4_f32(a_x4, 2);
+                    svfloat32_t a3 = svget4_f32(a_x4, 3);
+                        svfloat32x4_t c0 = svld1_f32_x4(pg4, bsrc + 0 * N);
+                        svmopa_za32_f32_m(0, pg, pg, a0, svget4_f32(c0, 0));
+                        svmopa_za32_f32_m(1, pg, pg, a0, svget4_f32(c0, 1));
+                        svmopa_za32_f32_m(2, pg, pg, a0, svget4_f32(c0, 2));
+                        svmopa_za32_f32_m(3, pg, pg, a0, svget4_f32(c0, 3));
+                        svfloat32x4_t c1 = svld1_f32_x4(pg4, bsrc + 1 * N);
+                        svmopa_za32_f32_m(0, pg, pg, a1, svget4_f32(c1, 0));
+                        svmopa_za32_f32_m(1, pg, pg, a1, svget4_f32(c1, 1));
+                        svmopa_za32_f32_m(2, pg, pg, a1, svget4_f32(c1, 2));
+                        svmopa_za32_f32_m(3, pg, pg, a1, svget4_f32(c1, 3));
+                        svfloat32x4_t c2 = svld1_f32_x4(pg4, bsrc + 2 * N);
+                        svmopa_za32_f32_m(0, pg, pg, a2, svget4_f32(c2, 0));
+                        svmopa_za32_f32_m(1, pg, pg, a2, svget4_f32(c2, 1));
+                        svmopa_za32_f32_m(2, pg, pg, a2, svget4_f32(c2, 2));
+                        svmopa_za32_f32_m(3, pg, pg, a2, svget4_f32(c2, 3));
+                        svfloat32x4_t c3 = svld1_f32_x4(pg4, bsrc + 3 * N);
+                        svmopa_za32_f32_m(0, pg, pg, a3, svget4_f32(c3, 0));
+                        svmopa_za32_f32_m(1, pg, pg, a3, svget4_f32(c3, 1));
+                        svmopa_za32_f32_m(2, pg, pg, a3, svget4_f32(c3, 2));
+                        svmopa_za32_f32_m(3, pg, pg, a3, svget4_f32(c3, 3));
+                    bsrc += GRP * N;
+                }
+                for (size_t k = K_main; k < K; k++) {
+                    svfloat32_t   a = svld1_f32(pg, pA); pA += SVL;
+                    svfloat32x4_t b = svld1_f32_x4(pg4, bsrc); bsrc += N;
+                    svmopa_za32_f32_m(0, pg, pg, a, svget4_f32(b, 0));
+                    svmopa_za32_f32_m(1, pg, pg, a, svget4_f32(b, 1));
+                    svmopa_za32_f32_m(2, pg, pg, a, svget4_f32(b, 2));
+                    svmopa_za32_f32_m(3, pg, pg, a, svget4_f32(b, 3));
+                }
+                store_za(C + ir * N + n, N);
+            }
+        }
+    }
+
+    void run_multiplication_buf0(const float* A, const float* B, float* C,
+                                 size_t M, size_t K, size_t N) {
+        run_multiplication_buf0_blocked(A, B, C, M, K, N);
+    }
+
+} // namespace SMEKernels1x4AccKcOutSmall

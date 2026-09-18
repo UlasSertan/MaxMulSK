@@ -1,0 +1,45 @@
+# How to reproduce the 2026-09-13 runs
+
+cmake -B cmake-build-release -DCMAKE_BUILD_TYPE=Release
+cmake --build cmake-build-release -j8
+
+# F2 / F2-ZaPres / Accelerate / MpGEMM at M=11008 K=4096 N=256
+caffeinate -dimsu ./cmake-build-release/bench_f2_vs_r0 10          > f2_5way.csv
+
+# v3 / generalised v4 / Accelerate / MpGEMM over all 35 shapes
+caffeinate -dimsu ./cmake-build-release/bench_v4_sweep 5           > v4_sweep.csv
+python3 bench/summarize_v4_sweep.py v4_sweep.csv
+
+# Nc/Mc/Kc sweep: 100 blockings x 35 shapes, two stages
+#   args: stage1_budget_s stage1_passes stage2_budget_s stage2_runs keep_per_shape
+caffeinate -dimsu ./cmake-build-release/bench_nb_sweep 0.06 2 0.15 5 8 > nb_sweep.csv
+python3 bench/summarize_nb_sweep.py nb_sweep.csv
+
+# Correctness for the Nc-blocked kernel (219 cases, must print ALL PASS).
+# Built standalone; see source/check_nb.cpp.
+
+# Thermal re-check: re-measure early shapes right after a long run and compare
+# against their in-sweep values. See source/thermal_recheck.cpp.
+
+# Extended-axis sweep: Nc adds {2048,4096}, Kc adds {8192,16384}; mode 1 runs
+# only the blockings the base sweep did not cover (96 + the fixed reference).
+caffeinate -dimsu ./cmake-build-release/bench_nb_sweep 0.06 2 0.15 5 8 1 > nb_sweep_ext.csv
+# merge for analysis (both runs measure the same reference per shape, so the
+# vs_ref ratios are comparable; absolute GFLOP/s are not comparable across runs)
+head -1 nb_sweep.csv > nb_sweep_merged.csv
+tail -n +2 nb_sweep.csv     >> nb_sweep_merged.csv
+tail -n +2 nb_sweep_ext.csv >> nb_sweep_merged.csv
+python3 bench/summarize_nb_sweep.py nb_sweep_merged.csv
+
+# Five-way comparison on fresh common conditions: v3, v4@16/512/2048,
+# v4@32/1024/2048, MpGEMM, Accelerate. All 35 shapes, one binary, one session.
+caffeinate -dimsu ./cmake-build-release/bench_final5 5 > final5.csv
+python3 bench/summarize_final5.py final5.csv
+
+# v4c: shape-driven choice between the two fixed profiles, vs Accelerate and MpGEMM
+caffeinate -dimsu ./cmake-build-release/bench_v4c3 5 > v4c3.csv
+python3 bench/summarize_v4c3.py v4c3.csv
+
+# Constant-product blocking family: Mc*Nc*Kc = 2^25 redistributed 42 ways,
+# plus v4a and v4b as off-surface controls. Ratios are against v4a.
+caffeinate -dimsu ./cmake-build-release/bench_isoprod 0.10 3 > isoprod.csv

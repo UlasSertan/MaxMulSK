@@ -1,0 +1,311 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="2200" viewBox="0 0 900 2200" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11">
+<text x="40" y="52" font-size="13.5" font-weight="600" fill="#8b949e">MaxMulSK vs MpGEMM vs Apple Accelerate</text>
+<text x="40" y="68" font-size="10.5" fill="#9aa4ae">Single-thread FP32 GEMM, Apple M4. Higher is better. Measured 2026-09-10; every implementation returns the same result on all 35 shapes.</text>
+<rect x="40" y="82" width="10" height="10" fill="#0969da"/>
+<text x="55" y="91" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#8b949e">MaxMulSK 1x4</text>
+<rect x="148.4" y="82" width="10" height="10" fill="#57606a"/>
+<text x="163.4" y="91" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#8b949e">Apple Accelerate</text>
+<rect x="285.6" y="82" width="10" height="10" fill="#bc4c00"/>
+<text x="300.6" y="91" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#8b949e">MpGEMM</text>
+<text x="40" y="122.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="600" fill="#24292f">Square</text>
+<text x="94.0" y="122.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11" fill="#9aa4ae">M = N = K</text>
+<line x1="380.0" y1="138.0" x2="380.0" y2="376.0" stroke="#d0d7de" stroke-width="1"/>
+<line x1="510.0" y1="138.0" x2="510.0" y2="376.0" stroke="#d0d7de" stroke-width="1"/>
+<line x1="640.0" y1="138.0" x2="640.0" y2="376.0" stroke="#d0d7de" stroke-width="1"/>
+<line x1="770.0" y1="138.0" x2="770.0" y2="376.0" stroke="#d0d7de" stroke-width="1"/>
+<text x="240" y="155.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">256×256×256</text>
+<rect x="250" y="145.0" width="111.63400000000001" height="8" fill="#0969da" opacity="0.72"/>
+<text x="617.634" y="152.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1391</text>
+<rect x="250" y="157.5" width="215.29600000000005" height="8" fill="#57606a" opacity="1"/>
+<text x="721.296" y="165.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1790</text>
+<rect x="250" y="170.0" width="136.308" height="8" fill="#bc4c00" opacity="0.72"/>
+<text x="642.308" y="177.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1486</text>
+<text x="240" y="203.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">512×512×512</text>
+<rect x="250" y="193.0" width="180.81999999999994" height="8" fill="#0969da" opacity="0.72"/>
+<text x="686.8199999999999" y="200.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1657</text>
+<rect x="250" y="205.5" width="212.59199999999998" height="8" fill="#57606a" opacity="0.72"/>
+<text x="718.592" y="213.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1779</text>
+<rect x="250" y="218.0" width="218.02600000000007" height="8" fill="#bc4c00" opacity="1"/>
+<text x="724.0260000000001" y="225.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1800</text>
+<text x="240" y="251.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">1024×1024×1024</text>
+<rect x="250" y="241.0" width="213.37200000000007" height="8" fill="#0969da" opacity="0.72"/>
+<text x="719.3720000000001" y="248.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1782</text>
+<rect x="250" y="253.5" width="189.14" height="8" fill="#57606a" opacity="0.72"/>
+<text x="695.14" y="261.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1689</text>
+<rect x="250" y="266.0" width="241.47800000000007" height="8" fill="#bc4c00" opacity="1"/>
+<text x="747.4780000000001" y="273.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1890</text>
+<text x="240" y="299.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">2048×2048×2048</text>
+<rect x="250" y="289.0" width="167.274" height="8" fill="#0969da" opacity="0.72"/>
+<text x="673.274" y="296.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1605</text>
+<rect x="250" y="301.5" width="181.15800000000002" height="8" fill="#57606a" opacity="1"/>
+<text x="687.158" y="309.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1658</text>
+<rect x="250" y="314.0" width="152.63599999999997" height="8" fill="#bc4c00" opacity="0.72"/>
+<text x="658.636" y="321.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1549</text>
+<text x="240" y="347.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">4096×4096×4096</text>
+<rect x="250" y="337.0" width="178.48000000000002" height="8" fill="#0969da" opacity="1"/>
+<text x="684.48" y="344.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1648</text>
+<rect x="250" y="349.5" width="167.586" height="8" fill="#57606a" opacity="0.72"/>
+<text x="673.586" y="357.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1606</text>
+<rect x="250" y="362.0" width="142.44399999999996" height="8" fill="#bc4c00" opacity="0.72"/>
+<text x="648.444" y="369.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1509</text>
+<text x="40" y="440.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="600" fill="#24292f">LLM</text>
+<text x="67.0" y="440.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11" fill="#9aa4ae">K is the long axis, N = 512</text>
+<line x1="380.0" y1="456.0" x2="380.0" y2="742.0" stroke="#d0d7de" stroke-width="1"/>
+<line x1="510.0" y1="456.0" x2="510.0" y2="742.0" stroke="#d0d7de" stroke-width="1"/>
+<line x1="640.0" y1="456.0" x2="640.0" y2="742.0" stroke="#d0d7de" stroke-width="1"/>
+<line x1="770.0" y1="456.0" x2="770.0" y2="742.0" stroke="#d0d7de" stroke-width="1"/>
+<text x="240" y="473.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">64×8192×512</text>
+<rect x="250" y="463.0" width="-22.55200000000002" height="8" fill="#0969da" opacity="0.72"/>
+<text x="483.448" y="470.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">875</text>
+<rect x="250" y="475.5" width="-6.45799999999997" height="8" fill="#57606a" opacity="0.72"/>
+<text x="499.54200000000003" y="483.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">937</text>
+<rect x="250" y="488.0" width="8.829999999999984" height="8" fill="#bc4c00" opacity="1"/>
+<text x="514.8299999999999" y="495.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">996</text>
+<text x="240" y="521.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">64×16384×512</text>
+<rect x="250" y="511.0" width="-45.432000000000016" height="8" fill="#0969da" opacity="0.72"/>
+<text x="460.568" y="518.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">787</text>
+<rect x="250" y="523.5" width="-32.35400000000004" height="8" fill="#57606a" opacity="0.72"/>
+<text x="473.64599999999996" y="531.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">837</text>
+<rect x="250" y="536.0" width="-20.446000000000026" height="8" fill="#bc4c00" opacity="1"/>
+<text x="485.554" y="543.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">883</text>
+<text x="240" y="569.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">64×32768×512</text>
+<rect x="250" y="559.0" width="-48.24000000000001" height="8" fill="#0969da" opacity="0.72"/>
+<text x="457.76" y="566.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">776</text>
+<rect x="250" y="571.5" width="-37.21600000000001" height="8" fill="#57606a" opacity="0.72"/>
+<text x="468.784" y="579.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">818</text>
+<rect x="250" y="584.0" width="-19.587999999999965" height="8" fill="#bc4c00" opacity="1"/>
+<text x="486.41200000000003" y="591.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">886</text>
+<text x="240" y="617.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">128×8192×512</text>
+<rect x="250" y="607.0" width="18.970000000000027" height="8" fill="#0969da" opacity="0.72"/>
+<text x="524.97" y="614.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1034</text>
+<rect x="250" y="619.5" width="53.57600000000002" height="8" fill="#57606a" opacity="0.72"/>
+<text x="559.576" y="627.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1168</text>
+<rect x="250" y="632.0" width="61.55799999999999" height="8" fill="#bc4c00" opacity="1"/>
+<text x="567.558" y="639.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1198</text>
+<text x="240" y="665.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">128×16384×512</text>
+<rect x="250" y="655.0" width="11.612000000000023" height="8" fill="#0969da" opacity="0.72"/>
+<text x="517.6120000000001" y="662.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1006</text>
+<rect x="250" y="667.5" width="33.06200000000001" height="8" fill="#57606a" opacity="0.72"/>
+<text x="539.062" y="675.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1089</text>
+<rect x="250" y="680.0" width="55.24000000000001" height="8" fill="#bc4c00" opacity="1"/>
+<text x="561.24" y="687.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1174</text>
+<text x="240" y="713.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">128×32768×512</text>
+<rect x="250" y="703.0" width="34.54399999999998" height="8" fill="#0969da" opacity="0.72"/>
+<text x="540.544" y="710.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1094</text>
+<rect x="250" y="715.5" width="37.24800000000005" height="8" fill="#57606a" opacity="0.72"/>
+<text x="543.248" y="723.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1105</text>
+<rect x="250" y="728.0" width="52.327999999999975" height="8" fill="#bc4c00" opacity="1"/>
+<text x="558.328" y="735.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1163</text>
+<text x="40" y="806.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="600" fill="#24292f">DeepSeek, small M</text>
+<text x="193.0" y="806.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11" fill="#9aa4ae">M = 64 or 128 — tall-thin activations, IDs 1–12</text>
+<line x1="380.0" y1="822.0" x2="380.0" y2="1396.0" stroke="#d0d7de" stroke-width="1"/>
+<line x1="510.0" y1="822.0" x2="510.0" y2="1396.0" stroke="#d0d7de" stroke-width="1"/>
+<line x1="640.0" y1="822.0" x2="640.0" y2="1396.0" stroke="#d0d7de" stroke-width="1"/>
+<line x1="770.0" y1="822.0" x2="770.0" y2="1396.0" stroke="#d0d7de" stroke-width="1"/>
+<text x="240" y="839.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">64×7168×2112</text>
+<text x="240" y="851.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 1</text>
+<rect x="250" y="829.0" width="-23.124000000000024" height="8" fill="#0969da" opacity="0.72"/>
+<text x="482.876" y="836.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">873</text>
+<rect x="250" y="841.5" width="4.045999999999992" height="8" fill="#57606a" opacity="0.72"/>
+<text x="510.046" y="849.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">977</text>
+<rect x="250" y="854.0" width="16.968000000000075" height="8" fill="#bc4c00" opacity="1"/>
+<text x="522.9680000000001" y="861.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1027</text>
+<text x="240" y="887.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">64×1536×24576</text>
+<text x="240" y="899.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 2</text>
+<rect x="250" y="877.0" width="-16.415999999999997" height="8" fill="#0969da" opacity="1"/>
+<text x="489.584" y="884.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">898</text>
+<rect x="250" y="889.5" width="-93.48000000000002" height="8" fill="#57606a" opacity="0.72"/>
+<text x="412.52" y="897.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">602</text>
+<rect x="250" y="902.0" width="-26.81600000000003" height="8" fill="#bc4c00" opacity="0.72"/>
+<text x="479.18399999999997" y="909.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">858</text>
+<text x="240" y="935.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">64×512×32768</text>
+<text x="240" y="947.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 3</text>
+<rect x="250" y="925.0" width="-24.008000000000038" height="8" fill="#0969da" opacity="0.72"/>
+<text x="481.99199999999996" y="932.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">869</text>
+<rect x="250" y="937.5" width="-90.62" height="8" fill="#57606a" opacity="0.72"/>
+<text x="415.38" y="945.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">613</text>
+<rect x="250" y="950.0" width="-19.769999999999982" height="8" fill="#bc4c00" opacity="1"/>
+<text x="486.23" y="957.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">886</text>
+<text x="240" y="983.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">64×16384×7168</text>
+<text x="240" y="995.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 4</text>
+<rect x="250" y="973.0" width="-44.75599999999997" height="8" fill="#0969da" opacity="0.72"/>
+<text x="461.244" y="980.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">789</text>
+<rect x="250" y="985.5" width="-84.406" height="8" fill="#57606a" opacity="0.72"/>
+<text x="421.594" y="993.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">637</text>
+<rect x="250" y="998.0" width="-22.96799999999996" height="8" fill="#bc4c00" opacity="1"/>
+<text x="483.03200000000004" y="1005.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">873</text>
+<text x="240" y="1031.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">64×7168×4096</text>
+<text x="240" y="1043.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 5</text>
+<rect x="250" y="1021.0" width="-61.110000000000014" height="8" fill="#0969da" opacity="0.72"/>
+<text x="444.89" y="1028.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">726</text>
+<rect x="250" y="1033.5" width="-93.35000000000002" height="8" fill="#57606a" opacity="0.72"/>
+<text x="412.65" y="1041.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">602</text>
+<rect x="250" y="1046.0" width="1.731999999999971" height="8" fill="#bc4c00" opacity="1"/>
+<text x="507.73199999999997" y="1053.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">968</text>
+<text x="240" y="1079.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">64×2048×7168</text>
+<text x="240" y="1091.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 6</text>
+<rect x="250" y="1069.0" width="-47.53800000000001" height="8" fill="#0969da" opacity="0.72"/>
+<text x="458.462" y="1076.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">779</text>
+<rect x="250" y="1081.5" width="-78.24400000000003" height="8" fill="#57606a" opacity="0.72"/>
+<text x="427.756" y="1089.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">661</text>
+<rect x="250" y="1094.0" width="-15.012" height="8" fill="#bc4c00" opacity="1"/>
+<text x="490.988" y="1101.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">904</text>
+<text x="240" y="1127.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">128×7168×2112</text>
+<text x="240" y="1139.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 7</text>
+<rect x="250" y="1117.0" width="54.928" height="8" fill="#0969da" opacity="0.72"/>
+<text x="560.928" y="1124.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1173</text>
+<rect x="250" y="1129.5" width="89.32600000000002" height="8" fill="#57606a" opacity="0.72"/>
+<text x="595.326" y="1137.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1305</text>
+<rect x="250" y="1142.0" width="106.356" height="8" fill="#bc4c00" opacity="1"/>
+<text x="612.356" y="1149.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1371</text>
+<text x="240" y="1175.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">128×1536×24576</text>
+<text x="240" y="1187.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 8</text>
+<rect x="250" y="1165.0" width="43.30600000000004" height="8" fill="#0969da" opacity="1"/>
+<text x="549.306" y="1172.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1128</text>
+<rect x="250" y="1177.5" width="-25.95799999999997" height="8" fill="#57606a" opacity="0.72"/>
+<text x="480.04200000000003" y="1185.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">862</text>
+<rect x="250" y="1190.0" width="26.379999999999995" height="8" fill="#bc4c00" opacity="0.72"/>
+<text x="532.38" y="1197.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1063</text>
+<text x="240" y="1223.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">128×512×32768</text>
+<text x="240" y="1235.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 9</text>
+<rect x="250" y="1213.0" width="48.03800000000001" height="8" fill="#0969da" opacity="1"/>
+<text x="554.038" y="1220.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1146</text>
+<rect x="250" y="1225.5" width="-22.70799999999997" height="8" fill="#57606a" opacity="0.72"/>
+<text x="483.29200000000003" y="1233.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">874</text>
+<rect x="250" y="1238.0" width="46.42599999999993" height="8" fill="#bc4c00" opacity="0.72"/>
+<text x="552.4259999999999" y="1245.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1140</text>
+<text x="240" y="1271.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">128×16384×7168</text>
+<text x="240" y="1283.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 10</text>
+<rect x="250" y="1261.0" width="52.432000000000016" height="8" fill="#0969da" opacity="1"/>
+<text x="558.432" y="1268.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1163</text>
+<rect x="250" y="1273.5" width="-49.488" height="8" fill="#57606a" opacity="0.72"/>
+<text x="456.512" y="1281.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">771</text>
+<rect x="250" y="1286.0" width="30.930000000000064" height="8" fill="#bc4c00" opacity="0.72"/>
+<text x="536.9300000000001" y="1293.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1080</text>
+<text x="240" y="1319.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">128×7168×4096</text>
+<text x="240" y="1331.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 11</text>
+<rect x="250" y="1309.0" width="24.793999999999983" height="8" fill="#0969da" opacity="0.72"/>
+<text x="530.794" y="1316.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1057</text>
+<rect x="250" y="1321.5" width="-19.769999999999982" height="8" fill="#57606a" opacity="0.72"/>
+<text x="486.23" y="1329.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">886</text>
+<rect x="250" y="1334.0" width="76.66399999999999" height="8" fill="#bc4c00" opacity="1"/>
+<text x="582.664" y="1341.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1256</text>
+<text x="240" y="1367.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">128×2048×7168</text>
+<text x="240" y="1379.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 12</text>
+<rect x="250" y="1357.0" width="45.77600000000007" height="8" fill="#0969da" opacity="0.72"/>
+<text x="551.7760000000001" y="1364.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1138</text>
+<rect x="250" y="1369.5" width="0.8999999999999773" height="8" fill="#57606a" opacity="0.72"/>
+<text x="506.9" y="1377.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">965</text>
+<rect x="250" y="1382.0" width="55.08400000000006" height="8" fill="#bc4c00" opacity="1"/>
+<text x="561.0840000000001" y="1389.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1173</text>
+<text x="40" y="1460.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="600" fill="#24292f">DeepSeek, large M</text>
+<text x="193.0" y="1460.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11" fill="#9aa4ae">M = 4096, IDs 13–18</text>
+<line x1="380.0" y1="1476.0" x2="380.0" y2="1762.0" stroke="#d0d7de" stroke-width="1"/>
+<line x1="510.0" y1="1476.0" x2="510.0" y2="1762.0" stroke="#d0d7de" stroke-width="1"/>
+<line x1="640.0" y1="1476.0" x2="640.0" y2="1762.0" stroke="#d0d7de" stroke-width="1"/>
+<line x1="770.0" y1="1476.0" x2="770.0" y2="1762.0" stroke="#d0d7de" stroke-width="1"/>
+<text x="240" y="1493.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">4096×7168×2112</text>
+<text x="240" y="1505.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 13</text>
+<rect x="250" y="1483.0" width="164.466" height="8" fill="#0969da" opacity="1"/>
+<text x="670.466" y="1490.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1594</text>
+<rect x="250" y="1495.5" width="162.438" height="8" fill="#57606a" opacity="0.72"/>
+<text x="668.438" y="1503.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1586</text>
+<rect x="250" y="1508.0" width="157.70600000000002" height="8" fill="#bc4c00" opacity="0.72"/>
+<text x="663.706" y="1515.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1568</text>
+<text x="240" y="1541.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">4096×1536×24576</text>
+<text x="240" y="1553.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 14</text>
+<rect x="250" y="1531.0" width="193.664" height="8" fill="#0969da" opacity="1"/>
+<text x="699.664" y="1538.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1706</text>
+<rect x="250" y="1543.5" width="188.38599999999997" height="8" fill="#57606a" opacity="0.72"/>
+<text x="694.386" y="1551.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1686</text>
+<rect x="250" y="1556.0" width="135.37200000000007" height="8" fill="#bc4c00" opacity="0.72"/>
+<text x="641.3720000000001" y="1563.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1482</text>
+<text x="240" y="1589.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">4096×512×32768</text>
+<text x="240" y="1601.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 15</text>
+<rect x="250" y="1579.0" width="185.31799999999998" height="8" fill="#0969da" opacity="1"/>
+<text x="691.318" y="1586.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1674</text>
+<rect x="250" y="1591.5" width="165.688" height="8" fill="#57606a" opacity="0.72"/>
+<text x="671.688" y="1599.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1599</text>
+<rect x="250" y="1604.0" width="162.77600000000007" height="8" fill="#bc4c00" opacity="0.72"/>
+<text x="668.7760000000001" y="1611.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1588</text>
+<text x="240" y="1637.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">4096×16384×7168</text>
+<text x="240" y="1649.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 16</text>
+<rect x="250" y="1627.0" width="175.308" height="8" fill="#0969da" opacity="1"/>
+<text x="681.308" y="1634.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1636</text>
+<rect x="250" y="1639.5" width="148.37200000000007" height="8" fill="#57606a" opacity="0.72"/>
+<text x="654.3720000000001" y="1647.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1532</text>
+<rect x="250" y="1652.0" width="124.63400000000001" height="8" fill="#bc4c00" opacity="0.72"/>
+<text x="630.634" y="1659.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1441</text>
+<text x="240" y="1685.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">4096×7168×4096</text>
+<text x="240" y="1697.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 17</text>
+<rect x="250" y="1675.0" width="157.394" height="8" fill="#0969da" opacity="1"/>
+<text x="663.394" y="1682.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1567</text>
+<rect x="250" y="1687.5" width="153.62400000000002" height="8" fill="#57606a" opacity="0.72"/>
+<text x="659.624" y="1695.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1552</text>
+<rect x="250" y="1700.0" width="157.28999999999996" height="8" fill="#bc4c00" opacity="0.72"/>
+<text x="663.29" y="1707.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1566</text>
+<text x="240" y="1733.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">4096×2048×7168</text>
+<text x="240" y="1745.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 18</text>
+<rect x="250" y="1723.0" width="179.88400000000001" height="8" fill="#0969da" opacity="0.72"/>
+<text x="685.884" y="1730.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1653</text>
+<rect x="250" y="1735.5" width="193.17000000000007" height="8" fill="#57606a" opacity="1"/>
+<text x="699.1700000000001" y="1743.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1704</text>
+<rect x="250" y="1748.0" width="142.96399999999994" height="8" fill="#bc4c00" opacity="0.72"/>
+<text x="648.9639999999999" y="1755.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1511</text>
+<text x="40" y="1826.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="600" fill="#24292f">LLaMA</text>
+<text x="85.0" y="1826.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11" fill="#9aa4ae">N = 256 — narrow output, IDs 19–24</text>
+<line x1="380.0" y1="1842.0" x2="380.0" y2="2128.0" stroke="#d0d7de" stroke-width="1"/>
+<line x1="510.0" y1="1842.0" x2="510.0" y2="2128.0" stroke="#d0d7de" stroke-width="1"/>
+<line x1="640.0" y1="1842.0" x2="640.0" y2="2128.0" stroke="#d0d7de" stroke-width="1"/>
+<line x1="770.0" y1="1842.0" x2="770.0" y2="2128.0" stroke="#d0d7de" stroke-width="1"/>
+<text x="240" y="1859.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">4096×4096×256</text>
+<text x="240" y="1871.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 19</text>
+<rect x="250" y="1849.0" width="38.23599999999999" height="8" fill="#0969da" opacity="0.72"/>
+<text x="544.236" y="1856.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1109</text>
+<rect x="250" y="1861.5" width="112.28399999999999" height="8" fill="#57606a" opacity="0.72"/>
+<text x="618.284" y="1869.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1393</text>
+<rect x="250" y="1874.0" width="129.86" height="8" fill="#bc4c00" opacity="1"/>
+<text x="635.86" y="1881.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1461</text>
+<text x="240" y="1907.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">11008×4096×256</text>
+<text x="240" y="1919.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 20</text>
+<rect x="250" y="1897.0" width="32.567999999999984" height="8" fill="#0969da" opacity="0.72"/>
+<text x="538.568" y="1904.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1087</text>
+<rect x="250" y="1909.5" width="113.22000000000003" height="8" fill="#57606a" opacity="0.72"/>
+<text x="619.22" y="1917.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1397</text>
+<rect x="250" y="1922.0" width="129.21000000000004" height="8" fill="#bc4c00" opacity="1"/>
+<text x="635.21" y="1929.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1458</text>
+<text x="240" y="1955.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">4096×11008×256</text>
+<text x="240" y="1967.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 21</text>
+<rect x="250" y="1945.0" width="63.196000000000026" height="8" fill="#0969da" opacity="0.72"/>
+<text x="569.196" y="1952.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1205</text>
+<rect x="250" y="1957.5" width="115.48199999999997" height="8" fill="#57606a" opacity="0.72"/>
+<text x="621.482" y="1965.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1406</text>
+<rect x="250" y="1970.0" width="134.04600000000005" height="8" fill="#bc4c00" opacity="1"/>
+<text x="640.046" y="1977.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1477</text>
+<text x="240" y="2003.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">5120×5120×256</text>
+<text x="240" y="2015.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 22</text>
+<rect x="250" y="1993.0" width="40.88799999999992" height="8" fill="#0969da" opacity="0.72"/>
+<text x="546.8879999999999" y="2000.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1119</text>
+<rect x="250" y="2005.5" width="111.06200000000001" height="8" fill="#57606a" opacity="0.72"/>
+<text x="617.062" y="2013.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1389</text>
+<rect x="250" y="2018.0" width="133.26600000000008" height="8" fill="#bc4c00" opacity="1"/>
+<text x="639.2660000000001" y="2025.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1474</text>
+<text x="240" y="2051.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">13824×5120×256</text>
+<text x="240" y="2063.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 23</text>
+<rect x="250" y="2041.0" width="44.42399999999998" height="8" fill="#0969da" opacity="0.72"/>
+<text x="550.424" y="2048.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1132</text>
+<rect x="250" y="2053.5" width="113.03800000000001" height="8" fill="#57606a" opacity="0.72"/>
+<text x="619.038" y="2061.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1396</text>
+<rect x="250" y="2066.0" width="134.04600000000005" height="8" fill="#bc4c00" opacity="1"/>
+<text x="640.046" y="2073.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1477</text>
+<text x="240" y="2099.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11.5" fill="#24292f">5120×13824×256</text>
+<text x="240" y="2111.0" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="9.5" fill="#9aa4ae">ID 24</text>
+<rect x="250" y="2089.0" width="70.52800000000002" height="8" fill="#0969da" opacity="0.72"/>
+<text x="576.528" y="2096.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1233</text>
+<rect x="250" y="2101.5" width="114.10400000000004" height="8" fill="#57606a" opacity="0.72"/>
+<text x="620.104" y="2109.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1400</text>
+<rect x="250" y="2114.0" width="131.60199999999998" height="8" fill="#bc4c00" opacity="1"/>
+<text x="637.602" y="2121.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10" fill="#8b949e">1468</text>
+<text x="40" y="2174.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10.5" fill="#9aa4ae">Shapes labelled M×K×N. DeepSeek and LLaMA IDs follow Table III of the MpGEMM paper, which lists them as M, N, K. Reps calibrated on the slowest entrant; call order rotated as a cyclic Latin square; median of per-call timings.</text>
+<text x="40" y="2188.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10.5" fill="#9aa4ae">MaxMulSK 2x2 and 4x1 are omitted: 1x4 is the fastest of the three on 33 of 35 shapes. Full data in vs_mpgemm.csv.</text>
+</svg>

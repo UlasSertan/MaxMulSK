@@ -375,15 +375,17 @@ namespace SMEKernels2x2AccKcOut {
 
     __arm_locally_streaming __arm_new("za")
     __attribute__((noinline))
-    void run_multiplication(const float* A, const float* B, float* C,
-                            size_t M, size_t K, size_t N) {
+    void run_multiplication_blocked(const float* A, const float* B, float* C,
+                                    size_t M, size_t K, size_t N,
+                                    MaxMulSK::tuning::Blocking blk) {
         const size_t SVL = static_cast<size_t>(svcntsw());
 
         // Tile sizes are 2x2's shipped ones, unchanged. Only the K nesting moved.
-        constexpr size_t M_tile = 64;
-        constexpr size_t K_tile = 1024;   // inner chunk, one micro-kernel call
-        constexpr size_t N_tile = 512;
-        constexpr size_t Kc     = 2048;   // OUTER K panel
+        const size_t M_tile = blk.M_tile;
+        const size_t N_tile = blk.N_tile;
+        // K_tile is pinned to Kc, so the inner k loop is one call per panel.
+        const size_t K_tile = blk.Kc;
+        const size_t Kc     = blk.Kc;
 
         const size_t M_step = 2 * SVL;
         const size_t N_step = 2 * SVL;
@@ -420,17 +422,23 @@ namespace SMEKernels2x2AccKcOut {
                     // accumulation is live between tiles.
                     pack_A_streaming(A, packed_A.get(), mc, kcl, m, kk, K);
 
-                    for (size_t jr = 0; jr < nc; jr += N_step) {
-                        size_t n_rem = nc - jr;
-                        for (size_t ir = 0; ir < mc; ir += M_step) {
-                            size_t m_rem = mc - ir;
+                    // The (jr, ir) grid is walked through a flat index so the
+                    // nesting order becomes a runtime choice without duplicating
+                    // the tile body. blk.ir_outer swaps which packed panel stays
+                    // resident in the inner loop; it only matters when
+                    // N_tile > N_step, since otherwise jr has a single point.
+                    const size_t n_jr = (nc + N_step - 1) / N_step;
+                    const size_t n_ir = (mc + M_step - 1) / M_step;
 
+                    for (size_t t = 0; t < n_jr * n_ir; t++) {
+                        const size_t jr = (blk.ir_outer ? (t % n_jr) : (t / n_ir)) * N_step;
+                        const size_t ir = (blk.ir_outer ? (t / n_jr) : (t % n_ir)) * M_step;
+                        const size_t n_rem = nc - jr;
+                        const size_t m_rem = mc - ir;
+                        {
                             bool m_tail = m_rem < M_step;
                             bool n_tail = n_rem < N_step;
 
-                            // A consumes M_step floats per k-step ([a0|a1]
-                            // interleaved) and B consumes N_step ([b0|b1]), so
-                            // the within-panel advance is k * M_step / k * N_step.
                             svzero_za();
                             for (size_t k = 0; k < kcl; k += K_tile) {
                                 size_t kc = std::min(K_tile, kcl - k);
@@ -478,6 +486,15 @@ namespace SMEKernels2x2AccKcOut {
                 }
             }
         }
+    }
+
+    // Public entry point: pick the blocking in normal mode, then enter
+    // streaming exactly once.
+    void run_multiplication(const float* A, const float* B, float* C,
+                            size_t M, size_t K, size_t N) {
+        run_multiplication_blocked(A, B, C, M, K, N,
+                                   MaxMulSK::tuning::select(
+                                       MaxMulSK::tuning::Kernel::Sme2x2KcOut, M, K, N));
     }
 
 } // namespace SMEKernels2x2AccKcOut

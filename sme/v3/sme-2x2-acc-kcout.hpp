@@ -2,6 +2,8 @@
 
 #include <cstddef>
 
+#include "../support/gemm_tuning.hpp"
+
 // =============================================================================
 // SME 2x2-Acc-KcOut: the 1x4-Acc treatment applied to the 2x2 geometry.
 //
@@ -46,7 +48,14 @@ namespace SMEKernels2x2AccKcOut {
     // MAIN DRIVER
     // =========================================================================
 
+    // Streaming implementation with the blocking passed in, for sweeps.
     __arm_locally_streaming __arm_new("za")
+    void run_multiplication_blocked(const float* A, const float* B, float* C,
+                                    size_t M, size_t K, size_t N,
+                                    MaxMulSK::tuning::Blocking b);
+
+    // Public entry point. NOT streaming: it chooses the blocking in normal mode
+    // and then enters streaming once.
     void run_multiplication(const float* A, const float* B, float* C,
                             size_t M, size_t K, size_t N);
 

@@ -1,0 +1,31 @@
+35 shapes ran natively on v4, 0 refused.
+
+Win / tie / loss, +/-5% threshold
+                        win  tie  loss   geomean
+  v4 vs v3               11    3    21   0.645x
+  v4 vs MpGEMM            0    7    28   0.594x
+  v4 vs Accelerate        0   11    24   0.649x
+
+By regime  (geomean of the ratio; win/tie/loss vs v3)
+regime                  n     v4/v3  v4/MpGEMM  v4/Accel   w/t/l vs v3
+narrow N (<=256)        7    1.191x     0.933x    0.919x   6/0/1
+narrow M (<=128)       18    0.601x     0.552x    0.673x   5/1/12
+all three large         8    0.455x     0.476x    0.457x   0/1/7
+mixed                   2    0.576x     0.570x    0.566x   0/1/1
+
+Most regressed vs v3
+  square       4096x4096x4096     v4/v3 0.344x   v3 1630 -> v4 560 GFLOP/s   packB 32 MiB
+  ds-id15      4096x512x32768    v4/v3 0.345x   v3 1571 -> v4 542 GFLOP/s   packB 64 MiB
+  ds-id14      4096x1536x24576    v4/v3 0.368x   v3 1521 -> v4 560 GFLOP/s   packB 144 MiB
+  ds-id18      4096x2048x7168     v4/v3 0.374x   v3 1504 -> v4 563 GFLOP/s   packB 56 MiB
+  ds-id16      4096x16384x7168     v4/v3 0.375x   v3 1499 -> v4 562 GFLOP/s   packB 56 MiB
+Most improved vs v3
+  llama-id19   4096x4096x256      v4/v3 1.341x   v3 978 -> v4 1312 GFLOP/s   packB 2 MiB
+  llama-id20   11008x4096x256      v4/v3 1.337x   v3 988 -> v4 1321 GFLOP/s   packB 2 MiB
+  llama-id22   5120x5120x256      v4/v3 1.294x   v3 1000 -> v4 1294 GFLOP/s   packB 2 MiB
+  llama-id23   13824x5120x256      v4/v3 1.281x   v3 997 -> v4 1277 GFLOP/s   packB 2 MiB
+  llama-id24   5120x13824x256      v4/v3 1.205x   v3 1058 -> v4 1274 GFLOP/s   packB 2 MiB
+
+Largest v4 relative error vs v3 : 1.091e-06  (square)
+Largest run-to-run spread        : 18.91%  (square)
+Largest packed B                 : 144 MiB (ds-id2)

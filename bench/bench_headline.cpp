@@ -304,7 +304,8 @@ int main(int argc, char** argv) {
         const Timing to = t[0], ta = t[1], tb = t[2];
         sink += (double)C_ours[0] + (double)C_acc[0] + (double)C_ob[s.M * s.N - 1];
 
-        const auto blk = MaxMulSK::tuning::select(s.M, s.K, s.N);
+        const auto blk = MaxMulSK::tuning::select(
+            MaxMulSK::tuning::Kernel::Sme1x4KcOut, s.M, s.K, s.N);
         char blkbuf[48];
         std::snprintf(blkbuf, sizeof blkbuf, "%zu/%zu/%zu/%s",
                       blk.M_tile, blk.N_tile, blk.Kc, blk.ir_outer ? "swap" : "-");
