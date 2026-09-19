@@ -43,6 +43,9 @@ namespace SMEKernels1x4SplitUnit {
         //   2  workers gather columns with lane loads (one lane load per element)
         // With 1/2 the SME thread never leaves compute for A.
         int    a_mode = 0;
+        // With a_mode 1/2: the SME thread transposes the first `a_split` panels
+        // itself (no wait at the start), workers do the rest -> pipeline.
+        size_t a_split = 0;
     };
 
     enum class Support {

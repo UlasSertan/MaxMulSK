@@ -519,7 +519,7 @@ namespace SMEKernels1x4SplitUnit {
     __attribute__((noinline))
     static bool run_slab(const float* RESTRICT A, const float* RESTRICT B, size_t K,
                          const float* RESTRICT prepack_A, float* RESTRICT packed_A, float* RESTRICT packed_B, float* RESTRICT C,
-                         size_t M, size_t N, size_t kk, size_t kcl, bool first_k, bool a_by_workers, bool b_by_workers, bool order_mn, bool direct_b, bool a_packed_by_workers,
+                         size_t M, size_t N, size_t kk, size_t kcl, bool first_k, bool a_by_workers, bool b_by_workers, bool order_mn, bool direct_b, bool a_packed_by_workers, size_t a_split,
                          std::atomic<uint32_t>* a_ready, std::atomic<uint32_t>* b_ready) {
         if (static_cast<size_t>(svcntsw()) != 16) return false;
         const svbool_t  pg = svptrue_b32();
@@ -540,10 +540,11 @@ namespace SMEKernels1x4SplitUnit {
         // spilled), so the two orders are written out with macros.
 #define V5_TRANSPOSE_A(a)                                                                     \
         do {                                                                                  \
-            if (a_by_workers) { MAXMULSK_HOOK_BEGIN(wait_a); spin_until(&a_ready[(a)]); MAXMULSK_HOOK_END(wait_a); } \
-            if (a_packed_by_workers) break;   /* packed_A[a] arrived ready: nothing to transpose */ \
-            const float* const src_ = a_by_workers ? prepack_A + (a) * 16 * kcl : A + (16 * (a)) * K + kk; \
-            const size_t stride_ = a_by_workers ? kcl : K;                                    \
+            const bool own_ = (a) < a_split;   /* first a_split panels: SME transposes from A itself */ \
+            if (a_by_workers && !own_) { MAXMULSK_HOOK_BEGIN(wait_a); spin_until(&a_ready[(a)]); MAXMULSK_HOOK_END(wait_a); } \
+            if (a_packed_by_workers && !own_) break;   /* packed_A[a] arrived ready: nothing to transpose */ \
+            const float* const src_ = (a_by_workers && !own_) ? prepack_A + (a) * 16 * kcl : A + (16 * (a)) * K + kk; \
+            const size_t stride_ = (a_by_workers && !own_) ? kcl : K;                         \
             float* const pA = packed_A + (a) * (kcl * 16);                                    \
             for (size_t kp = 0; kp < kcl; kp += 64) {                                         \
                 MAXMULSK_HOOK_EVENT(pack_a); MAXMULSK_HOOK_BEGIN(pack_a);                     \
@@ -660,9 +661,9 @@ namespace SMEKernels1x4SplitUnit {
                 g_ctx.tasks.clear();
                 if (order_mn) {
                     if (b_w) for (uint32_t b = 0; b < nb; b++) g_ctx.tasks.push_back({1, b});
-                    if (a_w) for (uint32_t a = 0; a < na; a++) g_ctx.tasks.push_back({0, a});
+                    if (a_w) for (uint32_t a = (uint32_t)p.a_split; a < na; a++) g_ctx.tasks.push_back({0, a});
                 } else {
-                    if (a_w) for (uint32_t a = 0; a < na; a++) g_ctx.tasks.push_back({0, a});
+                    if (a_w) for (uint32_t a = (uint32_t)p.a_split; a < na; a++) g_ctx.tasks.push_back({0, a});
                     if (b_w) for (uint32_t b = 0; b < nb; b++) g_ctx.tasks.push_back({1, b});
                 }
                 job.tasks.swap(g_ctx.tasks);
@@ -670,7 +671,7 @@ namespace SMEKernels1x4SplitUnit {
                 pl->generation.fetch_add(1, std::memory_order_release);
             }
             const bool ok = run_slab(A, B, K, g_ctx.prepack_A.get(), g_ctx.packed_A.get(), g_ctx.packed_B.get(), C,
-                                     M, N, kk, kcl, kk == 0, a_w, b_w, order_mn, p.direct_b, a_packed, g_ctx.a_ready.data(), g_ctx.b_ready.data());
+                                     M, N, kk, kcl, kk == 0, a_w, b_w, order_mn, p.direct_b, a_packed, std::min(p.a_split, na), g_ctx.a_ready.data(), g_ctx.b_ready.data());
             if (use_pool) {
                 while (job.done.load(std::memory_order_acquire) < p.workers) { __asm__ volatile("yield"); }
                 pl->job.store(nullptr, std::memory_order_release);
