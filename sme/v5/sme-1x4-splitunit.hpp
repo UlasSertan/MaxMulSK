@@ -1,0 +1,57 @@
+// =============================================================================
+// v5 — split-unit GEMM (recon-stage implementation, 2026-09-19).
+//
+// The SME unit is one per cluster and does not see L1D; the NEON load/store
+// path is per core (measured: MaxMulSK-Lab docs/device/m4-base.md). So the
+// DRAM/L2 movement is done by NEON worker threads in normal mode and ONE
+// thread stays in streaming mode for the ZA transpose of A and the mopa loop:
+//
+//   workers (NEON):  prepack_A  A rows -> contiguous 16 x kcl panels (row-major)
+//                    pack_B     B      -> kcl x 64 panels (k-major, the layout
+//                                         the micro-kernel reads)
+//   SME thread:      pack_A     prepack panel -> ZA -> packed_A (k-major),
+//                    compute    1x4 micro-kernel, writeback ZA -> C
+//
+// Ownership: every packed panel has a ready flag; the SME thread waits on it
+// (acquire) before touching the panel; workers set it (release) after their
+// stores. Workers never enter streaming mode (NEON is SIGILL there); the SME
+// thread never runs NEON. Per Kc slab the pipeline is: submit all panel tasks,
+// consume, join; the next slab starts when every worker is idle.
+//
+// SEMANTICS: C = A*B (first Kc slab overwrites, later slabs accumulate).
+// First step supports full tiles only: M%16==0, N%64==0, K%64==0.
+// Changes the comparison class: multi-thread packing + single SME compute.
+// =============================================================================
+#pragma once
+#include <cstddef>
+
+namespace SMEKernels1x4SplitUnit {
+
+    struct Params {
+        size_t workers = 2;      // NEON worker threads (persistent, spinning)
+        size_t Kc      = 2048;   // K slab; one slab at 256^3
+    };
+
+    enum class Support {
+        Native, UnsupportedMTail, UnsupportedNTail, UnsupportedKTail,
+        UnsupportedVectorLength, BadParams, AllocationFailed, Unsupported,
+    };
+
+    struct Counts {
+        size_t kc_slices, a_panels, b_panels, microkernel_calls;
+    };
+
+    Support classify(size_t M, size_t K, size_t N, const Params& p);
+    void    counts(size_t M, size_t K, size_t N, const Params& p, Counts* out);
+
+    // TEST ONLY: NEON packers, callable from normal mode, for layout checks.
+    void probe_prepack_A(const float* A, size_t K, size_t m, size_t kk, size_t kcl, float* dst);
+    void probe_pack_B(const float* B, size_t N, size_t kk, size_t n, size_t kcl, float* dst);
+
+    Support run_multiplication(const float* A, const float* B, float* C,
+                               size_t M, size_t K, size_t N, const Params& p);
+
+    // Persistent worker pool lifetime (created on first use; call to release).
+    void shutdown_workers();
+
+} // namespace SMEKernels1x4SplitUnit
