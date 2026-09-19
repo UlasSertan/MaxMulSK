@@ -130,6 +130,64 @@ namespace SMEKernels1x4SplitUnit {
     void probe_prepack_A(const float* A, size_t K, size_t m, size_t kk, size_t kcl, float* dst) { prepack_A_panel(A, K, m, kk, kcl, dst); }
     void probe_pack_B(const float* B, size_t N, size_t kk, size_t n, size_t kcl, float* dst) { pack_B_panel(B, N, kk, n, kcl, dst); }
 
+    // Streaming-mode B panel copy, the ncblock one, for L2-resident B (the SME
+    // thread's own load path is faster than a NEON core's from L2).
+    // Each jr-group (4*SVL cols) gets its own contiguous K_curr * 4*SVL block.
+    // Layout per k-step: [panel0_SVL | panel1_SVL | panel2_SVL | panel3_SVL]
+    // Micro-kernel reads all 4 panels with a single svld1_f32_x4 per k-step.
+    // =========================================================================
+    __attribute__((noinline))
+    void pack_B_streaming(const float* B, float* packed_B,
+                          size_t N_curr, size_t K_curr,
+                          size_t curr_row, size_t N, size_t curr_col) __arm_streaming {
+        const size_t SVL = static_cast<size_t>(svcntsw());
+        const svcount_t full_mask4 = svptrue_c32();
+        const svbool_t  pg         = svptrue_b32();
+        const size_t GS = 4 * SVL;
+        const size_t group_stride = K_curr * GS;
+        const size_t N_full = (N_curr / GS) * GS;
+
+        size_t n = 0;
+
+        for (; n < N_full; n += GS) {
+            float* block_base = packed_B + (n / GS) * group_stride;
+
+            for (size_t k = 0; k < K_curr; k++) {
+                svfloat32x4_t vec = svld1_f32_x4(full_mask4,
+                                                  B + (k + curr_row) * N + curr_col + n);
+                float* out = block_base + k * GS;
+                svst1_f32(pg, out + 0 * SVL, svget4_f32(vec, 0));
+                svst1_f32(pg, out + 1 * SVL, svget4_f32(vec, 1));
+                svst1_f32(pg, out + 2 * SVL, svget4_f32(vec, 2));
+                svst1_f32(pg, out + 3 * SVL, svget4_f32(vec, 3));
+            }
+        }
+
+        // N tail: predicated lanes zero invalid columns. Kernel still reads
+        // 4*SVL per k-step from this block; zero lanes contribute nothing.
+        if (n < N_curr) {
+            float* block_base = packed_B + (n / GS) * group_stride;
+            svbool_t mask0 = svwhilelt_b32_u64(n + 0 * SVL, N_curr);
+            svbool_t mask1 = svwhilelt_b32_u64(n + 1 * SVL, N_curr);
+            svbool_t mask2 = svwhilelt_b32_u64(n + 2 * SVL, N_curr);
+            svbool_t mask3 = svwhilelt_b32_u64(n + 3 * SVL, N_curr);
+
+            for (size_t k = 0; k < K_curr; k++) {
+                const float* src = B + (k + curr_row) * N + curr_col + n;
+                svfloat32_t v0 = svld1_f32(mask0, src + 0 * SVL);
+                svfloat32_t v1 = svld1_f32(mask1, src + 1 * SVL);
+                svfloat32_t v2 = svld1_f32(mask2, src + 2 * SVL);
+                svfloat32_t v3 = svld1_f32(mask3, src + 3 * SVL);
+                float* out = block_base + k * GS;
+                svst1_f32(pg, out + 0 * SVL, v0);
+                svst1_f32(pg, out + 1 * SVL, v1);
+                svst1_f32(pg, out + 2 * SVL, v2);
+                svst1_f32(pg, out + 3 * SVL, v3);
+            }
+        }
+    }
+
+
     // =========================================================================
     // Worker pool: persistent threads spinning on a job generation counter.
     // A job is a list of panel tasks; workers claim tasks with one atomic
@@ -176,7 +234,6 @@ namespace SMEKernels1x4SplitUnit {
     };
     static std::unique_ptr<Pool> g_pool; static size_t g_pool_n = 0;
     static Pool& pool(size_t n) { if (!g_pool || g_pool_n != n) { g_pool.reset(); g_pool = std::make_unique<Pool>(n); g_pool_n = n; } return *g_pool; }
-    void shutdown_workers() { g_pool.reset(); g_pool_n = 0; }
 
     // =========================================================================
     // SME side (streaming). Carried over from ncblock-apack4za.
@@ -417,8 +474,9 @@ namespace SMEKernels1x4SplitUnit {
 
     __arm_locally_streaming __arm_new("za")
     __attribute__((noinline))
-    static bool run_slab(const float* RESTRICT prepack_A, float* RESTRICT packed_A, float* RESTRICT packed_B, float* RESTRICT C,
-                         size_t M, size_t N, size_t kcl, bool first_k,
+    static bool run_slab(const float* RESTRICT A, const float* RESTRICT B, size_t K,
+                         const float* RESTRICT prepack_A, float* RESTRICT packed_A, float* RESTRICT packed_B, float* RESTRICT C,
+                         size_t M, size_t N, size_t kk, size_t kcl, bool first_k, bool a_by_workers, bool b_by_workers, bool order_mn,
                          std::atomic<uint32_t>* a_ready, std::atomic<uint32_t>* b_ready) {
         if (static_cast<size_t>(svcntsw()) != 16) return false;
         const svbool_t  pg = svptrue_b32();
@@ -426,43 +484,67 @@ namespace SMEKernels1x4SplitUnit {
         const svfloat32_t zu = svundef_f32();
         const size_t na = M / 16, nb = N / 64;
 
-        // ---- A: prepack panel (row-major, stride kcl) -> ZA -> packed_A ----
-        // Same chunk macro as v4; the source is the worker's L2-resident copy
-        // instead of A in DRAM, so the 16 loads per chunk hit L2.
-        for (size_t a = 0; a < na; a++) {
-            MAXMULSK_HOOK_BEGIN(wait_a);
-            spin_until(&a_ready[a]);
-            MAXMULSK_HOOK_END(wait_a);
-            const float* const src = prepack_A + a * 16 * kcl;
-            float* const pA = packed_A + a * (kcl * 16);
-            for (size_t kp = 0; kp < kcl; kp += 64) {
-                MAXMULSK_HOOK_EVENT(pack_a);
-                MAXMULSK_HOOK_BEGIN(pack_a);
-                const float* const arow = src + kp;
-                NB_PACK_A_KP_CHUNK(arow, kcl);
-                MAXMULSK_HOOK_END(pack_a);
+        // B not owned by workers: the SME thread copies every panel itself, up front
+        // (L2-resident by the l2_bytes rule; one pass at the streaming copy rate).
+        if (!b_by_workers) {
+            for (size_t b = 0; b < nb; b++) {
+                MAXMULSK_HOOK_EVENT(pack_b); MAXMULSK_HOOK_BEGIN(pack_b);
+                pack_B_streaming(B, packed_B + b * (kcl * 64), 64, kcl, kk, N, 64 * b);
+                MAXMULSK_HOOK_END(pack_b);
             }
         }
-        // ---- compute: N -> M, each B panel against every A panel ----
-        for (size_t b = 0; b < nb; b++) {
-            MAXMULSK_HOOK_BEGIN(wait_b);
-            spin_until(&b_ready[b]);
-            MAXMULSK_HOOK_END(wait_b);
-            float* const pB = packed_B + b * (kcl * 64);
+        // Lambdas here were measured 4x slower (2026-09-19; not inlined, captures
+        // spilled), so the two orders are written out with macros.
+#define V5_TRANSPOSE_A(a)                                                                     \
+        do {                                                                                  \
+            if (a_by_workers) { MAXMULSK_HOOK_BEGIN(wait_a); spin_until(&a_ready[(a)]); MAXMULSK_HOOK_END(wait_a); } \
+            const float* const src_ = a_by_workers ? prepack_A + (a) * 16 * kcl : A + (16 * (a)) * K + kk; \
+            const size_t stride_ = a_by_workers ? kcl : K;                                    \
+            float* const pA = packed_A + (a) * (kcl * 16);                                    \
+            for (size_t kp = 0; kp < kcl; kp += 64) {                                         \
+                MAXMULSK_HOOK_EVENT(pack_a); MAXMULSK_HOOK_BEGIN(pack_a);                     \
+                const float* const arow = src_ + kp;                                          \
+                NB_PACK_A_KP_CHUNK(arow, stride_);                                            \
+                MAXMULSK_HOOK_END(pack_a);                                                    \
+            }                                                                                 \
+        } while (0)
+#define V5_TILE(a, b)                                                                         \
+        do {                                                                                  \
+            float* const pA_ = packed_A + (a) * (kcl * 16); float* const pB_ = packed_B + (b) * (kcl * 64); \
+            MAXMULSK_HOOK_EVENT(za_init); MAXMULSK_HOOK_BEGIN(za_init);                       \
+            svzero_za();                                                                      \
+            MAXMULSK_HOOK_END(za_init);                                                       \
+            MAXMULSK_HOOK_EVENT(compute); MAXMULSK_HOOK_BEGIN(compute);                       \
+            micro_kernel_1x4(pA_, pB_, kcl);                                                  \
+            MAXMULSK_HOOK_END(compute);                                                       \
+            float* const dstC = C + (16 * (a)) * N + 64 * (b);                                \
+            MAXMULSK_HOOK_EVENT(writeback); MAXMULSK_HOOK_BEGIN(writeback);                   \
+            if (first_k) store_za(dstC, N); else store_za_add(dstC, N);                       \
+            MAXMULSK_HOOK_END(writeback);                                                     \
+        } while (0)
+        if (order_mn) {
+            // M -> N: whole packed_B fits L2. Each A panel is transposed as soon as
+            // it is available and used against every B panel: compute starts after
+            // ONE A panel; each B panel is waited for at its first use.
             for (size_t a = 0; a < na; a++) {
-                float* const pA = packed_A + a * (kcl * 16);
-                MAXMULSK_HOOK_EVENT(za_init); MAXMULSK_HOOK_BEGIN(za_init);
-                svzero_za();
-                MAXMULSK_HOOK_END(za_init);
-                MAXMULSK_HOOK_EVENT(compute); MAXMULSK_HOOK_BEGIN(compute);
-                micro_kernel_1x4(pA, pB, kcl);
-                MAXMULSK_HOOK_END(compute);
-                float* const dstC = C + (16 * a) * N + 64 * b;
-                MAXMULSK_HOOK_EVENT(writeback); MAXMULSK_HOOK_BEGIN(writeback);
-                if (first_k) store_za(dstC, N); else store_za_add(dstC, N);
-                MAXMULSK_HOOK_END(writeback);
+                V5_TRANSPOSE_A(a);
+                for (size_t b = 0; b < nb; b++) {
+                    if (b_by_workers && a == 0) { MAXMULSK_HOOK_BEGIN(wait_b); spin_until(&b_ready[b]); MAXMULSK_HOOK_END(wait_b); }
+                    V5_TILE(a, b);
+                }
+            }
+        } else {
+            // N -> M: packed_B does not fit L2. All of A first (small when this order
+            // is chosen), then every B panel is consumed once, by all A panels, right
+            // after it arrives -- B never goes round L2 twice.
+            for (size_t a = 0; a < na; a++) V5_TRANSPOSE_A(a);
+            for (size_t b = 0; b < nb; b++) {
+                if (b_by_workers) { MAXMULSK_HOOK_BEGIN(wait_b); spin_until(&b_ready[b]); MAXMULSK_HOOK_END(wait_b); }
+                for (size_t a = 0; a < na; a++) V5_TILE(a, b);
             }
         }
+#undef V5_TRANSPOSE_A
+#undef V5_TILE
         (void)zu; (void)p4; (void)pg;
         return true;
     }
@@ -475,43 +557,78 @@ namespace SMEKernels1x4SplitUnit {
         if (p.workers == 0 || p.workers > 8 || p.Kc % 64 != 0) return Support::BadParams;
         return Support::Native;
     }
+    static bool by_workers(size_t bytes, const Params& p) { return p.l2_bytes == 0 || bytes > p.l2_bytes; }
     void counts(size_t M, size_t K, size_t N, const Params& p, Counts* out) {
         const size_t Kc = std::min(p.Kc, K);
         out->kc_slices = (K + Kc - 1) / Kc; out->a_panels = out->kc_slices * (M / 16); out->b_panels = out->kc_slices * (N / 64);
         out->microkernel_calls = out->kc_slices * (M / 16) * (N / 64);
+        out->a_by_workers = by_workers(M * K * sizeof(float), p); out->b_by_workers = by_workers(K * N * sizeof(float), p);
     }
 
     struct FreeDeleter { void operator()(void* q) { std::free(q); } };
     using AlignedBuffer = std::unique_ptr<float[], FreeDeleter>;
+
+    // Buffers and flags kept across calls (grown on demand). Declared here so a
+    // reader sees that `allocation` is not paid per call — unlike v4c and
+    // MpGEMM, which allocate inside every call. Reported in the adapter detail.
+    struct Context {
+        AlignedBuffer prepack_A, packed_A, packed_B; size_t cap_A = 0, cap_B = 0, cap_prepack = 0;
+        std::vector<std::atomic<uint32_t>> a_ready, b_ready;
+        std::vector<Task> tasks;
+    };
+    static Context g_ctx;
+    static bool grow(AlignedBuffer& buf, size_t& cap, size_t floats) {
+        if (cap >= floats) return true;
+        buf.reset(static_cast<float*>(std::aligned_alloc(64, floats * sizeof(float)))); cap = buf ? floats : 0; return (bool)buf;
+    }
+    void shutdown_workers() { g_pool.reset(); g_pool_n = 0; g_ctx = Context{}; }
 
     Support run_multiplication(const float* A, const float* B, float* C, size_t M, size_t K, size_t N, const Params& p) {
         const Support s = classify(M, K, N, p);
         if (s != Support::Native) return s;
         const size_t Kc = std::min(p.Kc, K);
         const size_t na = M / 16, nb = N / 64;
+        const bool a_w = by_workers(M * K * sizeof(float), p), b_w = by_workers(K * N * sizeof(float), p);
         MAXMULSK_HOOK_EVENT(allocation); MAXMULSK_HOOK_BEGIN(allocation);
-        AlignedBuffer prepack_A(static_cast<float*>(std::aligned_alloc(64, M * Kc * sizeof(float))));
-        AlignedBuffer packed_A(static_cast<float*>(std::aligned_alloc(64, M * Kc * sizeof(float))));
-        AlignedBuffer packed_B(static_cast<float*>(std::aligned_alloc(64, N * Kc * sizeof(float))));
-        std::vector<std::atomic<uint32_t>> a_ready(na), b_ready(nb);
+        if (!grow(g_ctx.packed_A, g_ctx.cap_A, M * Kc) || !grow(g_ctx.packed_B, g_ctx.cap_B, N * Kc)) return Support::AllocationFailed;
+        if (a_w && !grow(g_ctx.prepack_A, g_ctx.cap_prepack, M * Kc)) return Support::AllocationFailed;
+        if (g_ctx.a_ready.size() < na) g_ctx.a_ready = std::vector<std::atomic<uint32_t>>(na);
+        if (g_ctx.b_ready.size() < nb) g_ctx.b_ready = std::vector<std::atomic<uint32_t>>(nb);
         MAXMULSK_HOOK_END(allocation);
-        if (!prepack_A || !packed_A || !packed_B) return Support::AllocationFailed;
-        Pool& pl = pool(p.workers);
+        const bool use_pool = a_w || b_w;
+        Pool* pl = use_pool ? &pool(p.workers) : nullptr;
 
         for (size_t kk = 0; kk < K; kk += Kc) {
             const size_t kcl = std::min(Kc, K - kk);
-            for (auto& f : a_ready) f.store(0, std::memory_order_relaxed);
-            for (auto& f : b_ready) f.store(0, std::memory_order_relaxed);
-            Job job; job.A = A; job.B = B; job.K = K; job.N = N; job.kk = kk; job.kcl = kcl;
-            job.prepack_A = prepack_A.get(); job.packed_B = packed_B.get(); job.a_ready = a_ready.data(); job.b_ready = b_ready.data();
-            // task order = consumption order: all A panels (the SME thread transposes them first), then B panels
-            for (uint32_t a = 0; a < na; a++) job.tasks.push_back({0, a});
-            for (uint32_t b = 0; b < nb; b++) job.tasks.push_back({1, b});
-            pl.job.store(&job, std::memory_order_release);
-            pl.generation.fetch_add(1, std::memory_order_release);
-            const bool ok = run_slab(prepack_A.get(), packed_A.get(), packed_B.get(), C, M, N, kcl, kk == 0, a_ready.data(), b_ready.data());
-            while (job.done.load(std::memory_order_acquire) < p.workers) { __asm__ volatile("yield"); }
-            pl.job.store(nullptr, std::memory_order_release);
+            const bool order_mn = N * kcl * sizeof(float) <= (6u << 20);   // packed_B slab within a 6 MiB L2 budget
+            Job job;
+            if (use_pool) {
+                for (size_t i = 0; i < na; i++) g_ctx.a_ready[i].store(0, std::memory_order_relaxed);
+                for (size_t i = 0; i < nb; i++) g_ctx.b_ready[i].store(0, std::memory_order_relaxed);
+                job.A = A; job.B = B; job.K = K; job.N = N; job.kk = kk; job.kcl = kcl;
+                job.prepack_A = g_ctx.prepack_A.get(); job.packed_B = g_ctx.packed_B.get(); job.a_ready = g_ctx.a_ready.data(); job.b_ready = g_ctx.b_ready.data();
+                // task order = the SME thread's consumption order: M->N needs every B
+                // panel for the first A panel (B first, then A); N->M needs all of A
+                // before the first B panel (A first, then B).
+                g_ctx.tasks.clear();
+                if (order_mn) {
+                    if (b_w) for (uint32_t b = 0; b < nb; b++) g_ctx.tasks.push_back({1, b});
+                    if (a_w) for (uint32_t a = 0; a < na; a++) g_ctx.tasks.push_back({0, a});
+                } else {
+                    if (a_w) for (uint32_t a = 0; a < na; a++) g_ctx.tasks.push_back({0, a});
+                    if (b_w) for (uint32_t b = 0; b < nb; b++) g_ctx.tasks.push_back({1, b});
+                }
+                job.tasks.swap(g_ctx.tasks);
+                pl->job.store(&job, std::memory_order_release);
+                pl->generation.fetch_add(1, std::memory_order_release);
+            }
+            const bool ok = run_slab(A, B, K, g_ctx.prepack_A.get(), g_ctx.packed_A.get(), g_ctx.packed_B.get(), C,
+                                     M, N, kk, kcl, kk == 0, a_w, b_w, order_mn, g_ctx.a_ready.data(), g_ctx.b_ready.data());
+            if (use_pool) {
+                while (job.done.load(std::memory_order_acquire) < p.workers) { __asm__ volatile("yield"); }
+                pl->job.store(nullptr, std::memory_order_release);
+                job.tasks.swap(g_ctx.tasks);
+            }
             if (!ok) return Support::UnsupportedVectorLength;
         }
         return Support::Native;

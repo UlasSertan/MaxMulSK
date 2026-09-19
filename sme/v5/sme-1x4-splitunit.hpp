@@ -28,8 +28,12 @@
 namespace SMEKernels1x4SplitUnit {
 
     struct Params {
-        size_t workers = 2;      // NEON worker threads (persistent, spinning)
-        size_t Kc      = 2048;   // K slab; one slab at 256^3
+        size_t workers  = 2;         // NEON worker threads (persistent, spinning)
+        size_t Kc       = 2048;      // K slab; one slab at 256^3
+        // An operand whose bytes fit under this is assumed L2-resident and is
+        // packed by the SME thread itself (its load path is ~5x a NEON core's
+        // from L2); larger operands go to the workers. 0 = workers for everything.
+        size_t l2_bytes = 4u << 20;
     };
 
     enum class Support {
@@ -39,6 +43,7 @@ namespace SMEKernels1x4SplitUnit {
 
     struct Counts {
         size_t kc_slices, a_panels, b_panels, microkernel_calls;
+        bool   a_by_workers, b_by_workers;
     };
 
     Support classify(size_t M, size_t K, size_t N, const Params& p);
@@ -51,7 +56,9 @@ namespace SMEKernels1x4SplitUnit {
     Support run_multiplication(const float* A, const float* B, float* C,
                                size_t M, size_t K, size_t N, const Params& p);
 
-    // Persistent worker pool lifetime (created on first use; call to release).
+    // Persistent worker pool and the packed buffers/flags are kept across calls
+    // (grown on demand); `allocation` in the hooks is therefore ~0 after the
+    // first call. Call to release everything.
     void shutdown_workers();
 
 } // namespace SMEKernels1x4SplitUnit
