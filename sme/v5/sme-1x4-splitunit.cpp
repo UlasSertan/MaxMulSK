@@ -258,12 +258,15 @@ namespace SMEKernels1x4SplitUnit {
     // Same-tile write gap: 4 svmopa slots + 1 load (matches 4x1).
     // =========================================================================
     __attribute__((noinline))
-    void micro_kernel_1x4(float* RESTRICT packed_A, float* RESTRICT packed_B,
-                          size_t K_curr) __arm_inout("za") __arm_streaming {
+    // ldb = floats between consecutive k rows of the B operand: 64 for a packed
+    // panel, N for reading B straight from the source (direct-B mode). Only the
+    // pointer increment changes; the load/MOPA schedule is the v4 one.
+    void micro_kernel_1x4(float* RESTRICT packed_A, const float* RESTRICT packed_B,
+                          size_t K_curr, size_t ldb) __arm_inout("za") __arm_streaming {
         const size_t SVL = static_cast<size_t>(svcntsw());
         const svbool_t pg = svptrue_b32();
         const svcount_t pg4 = svptrue_c32();
-        const size_t GS_B = 4 * SVL; // B group stride per k-step
+        const size_t GS_B = ldb; // B stride per k-step
 
         const float* pA = packed_A;
         const float* pB = packed_B;
@@ -476,7 +479,7 @@ namespace SMEKernels1x4SplitUnit {
     __attribute__((noinline))
     static bool run_slab(const float* RESTRICT A, const float* RESTRICT B, size_t K,
                          const float* RESTRICT prepack_A, float* RESTRICT packed_A, float* RESTRICT packed_B, float* RESTRICT C,
-                         size_t M, size_t N, size_t kk, size_t kcl, bool first_k, bool a_by_workers, bool b_by_workers, bool order_mn,
+                         size_t M, size_t N, size_t kk, size_t kcl, bool first_k, bool a_by_workers, bool b_by_workers, bool order_mn, bool direct_b,
                          std::atomic<uint32_t>* a_ready, std::atomic<uint32_t>* b_ready) {
         if (static_cast<size_t>(svcntsw()) != 16) return false;
         const svbool_t  pg = svptrue_b32();
@@ -486,7 +489,7 @@ namespace SMEKernels1x4SplitUnit {
 
         // B not owned by workers: the SME thread copies every panel itself, up front
         // (L2-resident by the l2_bytes rule; one pass at the streaming copy rate).
-        if (!b_by_workers) {
+        if (!b_by_workers && !direct_b) {
             for (size_t b = 0; b < nb; b++) {
                 MAXMULSK_HOOK_EVENT(pack_b); MAXMULSK_HOOK_BEGIN(pack_b);
                 pack_B_streaming(B, packed_B + b * (kcl * 64), 64, kcl, kk, N, 64 * b);
@@ -510,12 +513,14 @@ namespace SMEKernels1x4SplitUnit {
         } while (0)
 #define V5_TILE(a, b)                                                                         \
         do {                                                                                  \
-            float* const pA_ = packed_A + (a) * (kcl * 16); float* const pB_ = packed_B + (b) * (kcl * 64); \
+            float* const pA_ = packed_A + (a) * (kcl * 16);                                   \
+            const float* const pB_ = direct_b ? B + kk * N + 64 * (b) : packed_B + (b) * (kcl * 64); \
+            const size_t ldb_ = direct_b ? N : 64;                                            \
             MAXMULSK_HOOK_EVENT(za_init); MAXMULSK_HOOK_BEGIN(za_init);                       \
             svzero_za();                                                                      \
             MAXMULSK_HOOK_END(za_init);                                                       \
             MAXMULSK_HOOK_EVENT(compute); MAXMULSK_HOOK_BEGIN(compute);                       \
-            micro_kernel_1x4(pA_, pB_, kcl);                                                  \
+            micro_kernel_1x4(pA_, pB_, kcl, ldb_);                                            \
             MAXMULSK_HOOK_END(compute);                                                       \
             float* const dstC = C + (16 * (a)) * N + 64 * (b);                                \
             MAXMULSK_HOOK_EVENT(writeback); MAXMULSK_HOOK_BEGIN(writeback);                   \
@@ -562,7 +567,7 @@ namespace SMEKernels1x4SplitUnit {
         const size_t Kc = std::min(p.Kc, K);
         out->kc_slices = (K + Kc - 1) / Kc; out->a_panels = out->kc_slices * (M / 16); out->b_panels = out->kc_slices * (N / 64);
         out->microkernel_calls = out->kc_slices * (M / 16) * (N / 64);
-        out->a_by_workers = by_workers(M * K * sizeof(float), p); out->b_by_workers = by_workers(K * N * sizeof(float), p);
+        out->a_by_workers = by_workers(M * K * sizeof(float), p); out->b_by_workers = !p.direct_b && by_workers(K * N * sizeof(float), p);
     }
 
     struct FreeDeleter { void operator()(void* q) { std::free(q); } };
@@ -588,9 +593,9 @@ namespace SMEKernels1x4SplitUnit {
         if (s != Support::Native) return s;
         const size_t Kc = std::min(p.Kc, K);
         const size_t na = M / 16, nb = N / 64;
-        const bool a_w = by_workers(M * K * sizeof(float), p), b_w = by_workers(K * N * sizeof(float), p);
+        const bool a_w = by_workers(M * K * sizeof(float), p), b_w = !p.direct_b && by_workers(K * N * sizeof(float), p);
         MAXMULSK_HOOK_EVENT(allocation); MAXMULSK_HOOK_BEGIN(allocation);
-        if (!grow(g_ctx.packed_A, g_ctx.cap_A, M * Kc) || !grow(g_ctx.packed_B, g_ctx.cap_B, N * Kc)) return Support::AllocationFailed;
+        if (!grow(g_ctx.packed_A, g_ctx.cap_A, M * Kc) || (!p.direct_b && !grow(g_ctx.packed_B, g_ctx.cap_B, N * Kc))) return Support::AllocationFailed;
         if (a_w && !grow(g_ctx.prepack_A, g_ctx.cap_prepack, M * Kc)) return Support::AllocationFailed;
         if (g_ctx.a_ready.size() < na) g_ctx.a_ready = std::vector<std::atomic<uint32_t>>(na);
         if (g_ctx.b_ready.size() < nb) g_ctx.b_ready = std::vector<std::atomic<uint32_t>>(nb);
@@ -623,7 +628,7 @@ namespace SMEKernels1x4SplitUnit {
                 pl->generation.fetch_add(1, std::memory_order_release);
             }
             const bool ok = run_slab(A, B, K, g_ctx.prepack_A.get(), g_ctx.packed_A.get(), g_ctx.packed_B.get(), C,
-                                     M, N, kk, kcl, kk == 0, a_w, b_w, order_mn, g_ctx.a_ready.data(), g_ctx.b_ready.data());
+                                     M, N, kk, kcl, kk == 0, a_w, b_w, order_mn, p.direct_b, g_ctx.a_ready.data(), g_ctx.b_ready.data());
             if (use_pool) {
                 while (job.done.load(std::memory_order_acquire) < p.workers) { __asm__ volatile("yield"); }
                 pl->job.store(nullptr, std::memory_order_release);

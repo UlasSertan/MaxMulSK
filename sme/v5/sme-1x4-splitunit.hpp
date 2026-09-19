@@ -34,6 +34,9 @@ namespace SMEKernels1x4SplitUnit {
         // packed by the SME thread itself (its load path is ~5x a NEON core's
         // from L2); larger operands go to the workers. 0 = workers for everything.
         size_t l2_bytes = 4u << 20;
+        // direct-B: no B packing at all; the micro-kernel reads B from the source
+        // with row stride N (each k-step is still one contiguous 256 B x4 load).
+        bool   direct_b = false;
     };
 
     enum class Support {
