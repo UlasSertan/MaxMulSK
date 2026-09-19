@@ -127,6 +127,41 @@ namespace SMEKernels1x4SplitUnit {
             vst1q_f32_x4(d, v0); vst1q_f32_x4(d + 16, v1); vst1q_f32_x4(d + 32, v2); vst1q_f32_x4(d + 48, v3);
         }
     }
+    // A rows m..m+15, cols kk..kk+kcl -> dst[k*16 + r] (k-major micro-panel) with
+    // NEON 4x4 transposes: for 4 rows x 4 cols load 4 row vectors, transpose,
+    // store 4 column pieces (16 B each, 64 B apart). ~16 instructions per 4x4.
+    __attribute__((noinline))
+    static void pack_A_panel_neon_t(const float* RESTRICT A, size_t K, size_t m, size_t kk, size_t kcl, float* RESTRICT dst) {
+        for (size_t r = 0; r < 16; r += 4) {
+            const float* s0 = A + (m + r) * K + kk; const float* s1 = s0 + K; const float* s2 = s1 + K; const float* s3 = s2 + K;
+            for (size_t k = 0; k < kcl; k += 4) {
+                float32x4_t a0 = vld1q_f32(s0 + k), a1 = vld1q_f32(s1 + k), a2 = vld1q_f32(s2 + k), a3 = vld1q_f32(s3 + k);
+                float32x4x2_t t01 = vtrnq_f32(a0, a1), t23 = vtrnq_f32(a2, a3);
+                float32x4_t c0 = vcombine_f32(vget_low_f32(t01.val[0]), vget_low_f32(t23.val[0]));   // col k   : rows r..r+3
+                float32x4_t c1 = vcombine_f32(vget_low_f32(t01.val[1]), vget_low_f32(t23.val[1]));   // col k+1
+                float32x4_t c2 = vcombine_f32(vget_high_f32(t01.val[0]), vget_high_f32(t23.val[0])); // col k+2
+                float32x4_t c3 = vcombine_f32(vget_high_f32(t01.val[1]), vget_high_f32(t23.val[1])); // col k+3
+                float* d = dst + k * 16 + r;
+                vst1q_f32(d, c0); vst1q_f32(d + 16, c1); vst1q_f32(d + 32, c2); vst1q_f32(d + 48, c3);
+            }
+        }
+    }
+    // Same result by gathering: one lane load per element (rows are L2-resident
+    // after the first touch at small sizes; instruction count is the cost).
+    __attribute__((noinline))
+    static void pack_A_panel_neon_g(const float* RESTRICT A, size_t K, size_t m, size_t kk, size_t kcl, float* RESTRICT dst) {
+        for (size_t r = 0; r < 16; r += 4) {
+            const float* s0 = A + (m + r) * K + kk; const float* s1 = s0 + K; const float* s2 = s1 + K; const float* s3 = s2 + K;
+            for (size_t k = 0; k < kcl; k++) {
+                float32x4_t v = vdupq_n_f32(0.f);
+                v = vld1q_lane_f32(s0 + k, v, 0); v = vld1q_lane_f32(s1 + k, v, 1); v = vld1q_lane_f32(s2 + k, v, 2); v = vld1q_lane_f32(s3 + k, v, 3);
+                vst1q_f32(dst + k * 16 + r, v);
+            }
+        }
+    }
+    void probe_pack_A_neon(int mode, const float* A, size_t K, size_t m, size_t kk, size_t kcl, float* dst) {
+        if (mode == 1) pack_A_panel_neon_t(A, K, m, kk, kcl, dst); else pack_A_panel_neon_g(A, K, m, kk, kcl, dst);
+    }
     void probe_prepack_A(const float* A, size_t K, size_t m, size_t kk, size_t kcl, float* dst) { prepack_A_panel(A, K, m, kk, kcl, dst); }
     void probe_pack_B(const float* B, size_t N, size_t kk, size_t n, size_t kcl, float* dst) { pack_B_panel(B, N, kk, n, kcl, dst); }
 
@@ -197,7 +232,7 @@ namespace SMEKernels1x4SplitUnit {
     struct Task { uint8_t kind; uint32_t idx; };   // kind 0 = prepack A panel idx, 1 = pack B panel idx
     struct Job {
         const float* A; const float* B; size_t K, N, kk, kcl;
-        float* prepack_A; float* packed_B;
+        float* prepack_A; float* packed_A; float* packed_B; int a_mode;
         std::vector<Task> tasks;
         std::atomic<uint32_t> next{0};
         std::atomic<uint32_t>* a_ready; std::atomic<uint32_t>* b_ready;
@@ -225,7 +260,12 @@ namespace SMEKernels1x4SplitUnit {
                     const uint32_t t = j->next.fetch_add(1, std::memory_order_relaxed);
                     if (t >= j->tasks.size()) break;
                     const Task& tk = j->tasks[t];
-                    if (tk.kind == 0) { prepack_A_panel(j->A, j->K, 16 * tk.idx, j->kk, j->kcl, j->prepack_A + (size_t)tk.idx * 16 * j->kcl); j->a_ready[tk.idx].store(1, std::memory_order_release); }
+                    if (tk.kind == 0) {
+                        if (j->a_mode == 1)      pack_A_panel_neon_t(j->A, j->K, 16 * tk.idx, j->kk, j->kcl, j->packed_A + (size_t)tk.idx * j->kcl * 16);
+                        else if (j->a_mode == 2) pack_A_panel_neon_g(j->A, j->K, 16 * tk.idx, j->kk, j->kcl, j->packed_A + (size_t)tk.idx * j->kcl * 16);
+                        else                     prepack_A_panel(j->A, j->K, 16 * tk.idx, j->kk, j->kcl, j->prepack_A + (size_t)tk.idx * 16 * j->kcl);
+                        j->a_ready[tk.idx].store(1, std::memory_order_release);
+                    }
                     else              { pack_B_panel(j->B, j->N, j->kk, 64 * tk.idx, j->kcl, j->packed_B + (size_t)tk.idx * j->kcl * 64);   j->b_ready[tk.idx].store(1, std::memory_order_release); }
                 }
                 j->done.fetch_add(1, std::memory_order_release);
@@ -479,7 +519,7 @@ namespace SMEKernels1x4SplitUnit {
     __attribute__((noinline))
     static bool run_slab(const float* RESTRICT A, const float* RESTRICT B, size_t K,
                          const float* RESTRICT prepack_A, float* RESTRICT packed_A, float* RESTRICT packed_B, float* RESTRICT C,
-                         size_t M, size_t N, size_t kk, size_t kcl, bool first_k, bool a_by_workers, bool b_by_workers, bool order_mn, bool direct_b,
+                         size_t M, size_t N, size_t kk, size_t kcl, bool first_k, bool a_by_workers, bool b_by_workers, bool order_mn, bool direct_b, bool a_packed_by_workers,
                          std::atomic<uint32_t>* a_ready, std::atomic<uint32_t>* b_ready) {
         if (static_cast<size_t>(svcntsw()) != 16) return false;
         const svbool_t  pg = svptrue_b32();
@@ -501,6 +541,7 @@ namespace SMEKernels1x4SplitUnit {
 #define V5_TRANSPOSE_A(a)                                                                     \
         do {                                                                                  \
             if (a_by_workers) { MAXMULSK_HOOK_BEGIN(wait_a); spin_until(&a_ready[(a)]); MAXMULSK_HOOK_END(wait_a); } \
+            if (a_packed_by_workers) break;   /* packed_A[a] arrived ready: nothing to transpose */ \
             const float* const src_ = a_by_workers ? prepack_A + (a) * 16 * kcl : A + (16 * (a)) * K + kk; \
             const size_t stride_ = a_by_workers ? kcl : K;                                    \
             float* const pA = packed_A + (a) * (kcl * 16);                                    \
@@ -593,10 +634,11 @@ namespace SMEKernels1x4SplitUnit {
         if (s != Support::Native) return s;
         const size_t Kc = std::min(p.Kc, K);
         const size_t na = M / 16, nb = N / 64;
-        const bool a_w = by_workers(M * K * sizeof(float), p), b_w = !p.direct_b && by_workers(K * N * sizeof(float), p);
+        const bool a_w = p.a_mode != 0 || by_workers(M * K * sizeof(float), p), b_w = !p.direct_b && by_workers(K * N * sizeof(float), p);
+        const bool a_packed = p.a_mode != 0;
         MAXMULSK_HOOK_EVENT(allocation); MAXMULSK_HOOK_BEGIN(allocation);
         if (!grow(g_ctx.packed_A, g_ctx.cap_A, M * Kc) || (!p.direct_b && !grow(g_ctx.packed_B, g_ctx.cap_B, N * Kc))) return Support::AllocationFailed;
-        if (a_w && !grow(g_ctx.prepack_A, g_ctx.cap_prepack, M * Kc)) return Support::AllocationFailed;
+        if (a_w && !a_packed && !grow(g_ctx.prepack_A, g_ctx.cap_prepack, M * Kc)) return Support::AllocationFailed;
         if (g_ctx.a_ready.size() < na) g_ctx.a_ready = std::vector<std::atomic<uint32_t>>(na);
         if (g_ctx.b_ready.size() < nb) g_ctx.b_ready = std::vector<std::atomic<uint32_t>>(nb);
         MAXMULSK_HOOK_END(allocation);
@@ -611,7 +653,7 @@ namespace SMEKernels1x4SplitUnit {
                 for (size_t i = 0; i < na; i++) g_ctx.a_ready[i].store(0, std::memory_order_relaxed);
                 for (size_t i = 0; i < nb; i++) g_ctx.b_ready[i].store(0, std::memory_order_relaxed);
                 job.A = A; job.B = B; job.K = K; job.N = N; job.kk = kk; job.kcl = kcl;
-                job.prepack_A = g_ctx.prepack_A.get(); job.packed_B = g_ctx.packed_B.get(); job.a_ready = g_ctx.a_ready.data(); job.b_ready = g_ctx.b_ready.data();
+                job.prepack_A = g_ctx.prepack_A.get(); job.packed_A = g_ctx.packed_A.get(); job.packed_B = g_ctx.packed_B.get(); job.a_mode = p.a_mode; job.a_ready = g_ctx.a_ready.data(); job.b_ready = g_ctx.b_ready.data();
                 // task order = the SME thread's consumption order: M->N needs every B
                 // panel for the first A panel (B first, then A); N->M needs all of A
                 // before the first B panel (A first, then B).
@@ -628,7 +670,7 @@ namespace SMEKernels1x4SplitUnit {
                 pl->generation.fetch_add(1, std::memory_order_release);
             }
             const bool ok = run_slab(A, B, K, g_ctx.prepack_A.get(), g_ctx.packed_A.get(), g_ctx.packed_B.get(), C,
-                                     M, N, kk, kcl, kk == 0, a_w, b_w, order_mn, p.direct_b, g_ctx.a_ready.data(), g_ctx.b_ready.data());
+                                     M, N, kk, kcl, kk == 0, a_w, b_w, order_mn, p.direct_b, a_packed, g_ctx.a_ready.data(), g_ctx.b_ready.data());
             if (use_pool) {
                 while (job.done.load(std::memory_order_acquire) < p.workers) { __asm__ volatile("yield"); }
                 pl->job.store(nullptr, std::memory_order_release);

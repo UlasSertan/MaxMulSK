@@ -37,6 +37,12 @@ namespace SMEKernels1x4SplitUnit {
         // direct-B: no B packing at all; the micro-kernel reads B from the source
         // with row stride N (each k-step is still one contiguous 256 B x4 load).
         bool   direct_b = false;
+        // Who produces packed_A (k-major micro-panels):
+        //   0  workers copy rows (prepack), the SME thread transposes in ZA (default)
+        //   1  workers transpose with NEON 4x4 zip/trn blocks -> packed_A directly
+        //   2  workers gather columns with lane loads (one lane load per element)
+        // With 1/2 the SME thread never leaves compute for A.
+        int    a_mode = 0;
     };
 
     enum class Support {
@@ -55,6 +61,7 @@ namespace SMEKernels1x4SplitUnit {
     // TEST ONLY: NEON packers, callable from normal mode, for layout checks.
     void probe_prepack_A(const float* A, size_t K, size_t m, size_t kk, size_t kcl, float* dst);
     void probe_pack_B(const float* B, size_t N, size_t kk, size_t n, size_t kcl, float* dst);
+    void probe_pack_A_neon(int mode, const float* A, size_t K, size_t m, size_t kk, size_t kcl, float* dst);  // mode 1 transpose, 2 gather
 
     Support run_multiplication(const float* A, const float* B, float* C,
                                size_t M, size_t K, size_t N, const Params& p);
