@@ -46,6 +46,9 @@ namespace SMEKernels1x4SplitUnit {
         // With a_mode 1/2: the SME thread transposes the first `a_split` panels
         // itself (no wait at the start), workers do the rest -> pipeline.
         size_t a_split = 0;
+        // Worker thread QoS: 0 = USER_INTERACTIVE (scheduler prefers P-cores),
+        // 1 = BACKGROUND (steered to E-cores). Placement experiment only.
+        int    worker_qos = 0;
     };
 
     enum class Support {

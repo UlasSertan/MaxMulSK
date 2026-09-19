@@ -243,12 +243,13 @@ namespace SMEKernels1x4SplitUnit {
         std::atomic<Job*> job{nullptr};
         std::atomic<uint64_t> generation{0};
         std::atomic<bool> quit{false};
-        explicit Pool(size_t n) {
+        int qos = 0;
+        explicit Pool(size_t n, int q) : qos(q) {
             for (size_t i = 0; i < n; i++) threads.emplace_back([this] { loop(); });
         }
         ~Pool() { quit.store(true); generation.fetch_add(1); for (auto& t : threads) t.join(); }
         void loop() {
-            pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+            pthread_set_qos_class_self_np(qos == 1 ? QOS_CLASS_BACKGROUND : QOS_CLASS_USER_INTERACTIVE, 0);
             uint64_t seen = 0;
             for (;;) {
                 while (generation.load(std::memory_order_acquire) == seen) { __asm__ volatile("yield"); }
@@ -272,8 +273,8 @@ namespace SMEKernels1x4SplitUnit {
             }
         }
     };
-    static std::unique_ptr<Pool> g_pool; static size_t g_pool_n = 0;
-    static Pool& pool(size_t n) { if (!g_pool || g_pool_n != n) { g_pool.reset(); g_pool = std::make_unique<Pool>(n); g_pool_n = n; } return *g_pool; }
+    static std::unique_ptr<Pool> g_pool; static size_t g_pool_n = 0; static int g_pool_qos = -1;
+    static Pool& pool(size_t n, int qos) { if (!g_pool || g_pool_n != n || g_pool_qos != qos) { g_pool.reset(); g_pool = std::make_unique<Pool>(n, qos); g_pool_n = n; g_pool_qos = qos; } return *g_pool; }
 
     // =========================================================================
     // SME side (streaming). Carried over from ncblock-apack4za.
@@ -644,7 +645,7 @@ namespace SMEKernels1x4SplitUnit {
         if (g_ctx.b_ready.size() < nb) g_ctx.b_ready = std::vector<std::atomic<uint32_t>>(nb);
         MAXMULSK_HOOK_END(allocation);
         const bool use_pool = a_w || b_w;
-        Pool* pl = use_pool ? &pool(p.workers) : nullptr;
+        Pool* pl = use_pool ? &pool(p.workers, p.worker_qos) : nullptr;
 
         for (size_t kk = 0; kk < K; kk += Kc) {
             const size_t kcl = std::min(Kc, K - kk);
