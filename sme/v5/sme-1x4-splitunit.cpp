@@ -597,6 +597,19 @@ namespace SMEKernels1x4SplitUnit {
         return true;
     }
 
+    __arm_locally_streaming __arm_new("za")
+    void probe_microkernel(const float* pA, const float* pB, size_t kcl, size_t ldb, size_t tiles) {
+        for (size_t t = 0; t < tiles; t++) { svzero_za(); micro_kernel_1x4(const_cast<float*>(pA), pB, kcl, ldb); }
+    }
+    __arm_locally_streaming
+    void probe_prepack_A_streaming(const float* A, size_t K, size_t m, size_t kk, size_t kcl, float* dst) {
+        const svcount_t pn = svptrue_c32();
+        for (size_t r = 0; r < 16; r++) {
+            const float* s = A + (m + r) * K + kk; float* d = dst + r * kcl;
+            for (size_t k = 0; k < kcl; k += 64) svst1_f32_x4(pn, d + k, svld1_f32_x4(pn, s + k));
+        }
+    }
+
     Support classify(size_t M, size_t K, size_t N, const Params& p) {
         if (M == 0 || K == 0 || N == 0)  return Support::Unsupported;
         if (M % 16 != 0)                 return Support::UnsupportedMTail;

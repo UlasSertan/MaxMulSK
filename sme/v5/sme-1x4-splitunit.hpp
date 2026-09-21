@@ -68,6 +68,11 @@ namespace SMEKernels1x4SplitUnit {
     void probe_prepack_A(const float* A, size_t K, size_t m, size_t kk, size_t kcl, float* dst);
     void probe_pack_B(const float* B, size_t N, size_t kk, size_t n, size_t kcl, float* dst);
     void probe_pack_A_neon(int mode, const float* A, size_t K, size_t m, size_t kk, size_t kcl, float* dst);  // mode 1 transpose, 2 gather
+    // TEST ONLY: `tiles` back-to-back micro-kernel calls on one packed A panel and
+    // one B panel (ldb = 64 packed / N direct), ZA zeroed per tile, no writeback.
+    void probe_microkernel(const float* pA, const float* pB, size_t kcl, size_t ldb, size_t tiles);
+    // TEST ONLY: streaming-mode row copy of one 16 x kcl A panel (the SME thread's own prepack).
+    void probe_prepack_A_streaming(const float* A, size_t K, size_t m, size_t kk, size_t kcl, float* dst);
 
     Support run_multiplication(const float* A, const float* B, float* C,
                                size_t M, size_t K, size_t N, const Params& p);
