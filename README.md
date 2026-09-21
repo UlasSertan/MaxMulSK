@@ -36,6 +36,21 @@ fine. A bar shows its value by length, so cropping it would exaggerate every
 difference. Every marker is labelled with its number. Raw data is in
 [bench/results/2026-09-09/](bench/results/2026-09-09/).</sub>
 
+<img src="docs/img/v4c_square.svg" width="100%" alt="Square GEMM: MaxMulSK v4c path vs Apple Accelerate, 13 September 2026">
+
+<img src="docs/img/v4c_llm.svg" width="100%" alt="LLM-shaped GEMM: MaxMulSK v4c path vs Apple Accelerate, 13 September 2026">
+
+<img src="docs/img/v4c_deepseek_m64.svg" width="100%" alt="DeepSeek-V3 GEMM shapes, M=64: MaxMulSK v4c path vs Apple Accelerate">
+
+<img src="docs/img/v4c_deepseek_m128.svg" width="100%" alt="DeepSeek-V3 GEMM shapes, M=128: MaxMulSK v4c path vs Apple Accelerate">
+
+<sub>The newer v4c path (`sme/v4/`) against Apple Accelerate on 13 September
+2026: one session, same binary, call order rotated, median of 5 runs, AC power.
+OpenBLAS was not part of that session. The DeepSeek-V3 shapes are the MpGEMM
+paper's table; the 6 LLaMA shapes from the same run (N = 256) are not charted
+here: v4c is behind Accelerate on them by 3 to 5%. Raw data:
+[bench/results/2026-09-13/v4c3.csv](bench/results/2026-09-13/v4c3.csv).</sub>
+
 ---
 
 > Hey, it's Ulaş. If you're wondering why this project exists in the first place
