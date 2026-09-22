@@ -41,6 +41,9 @@ namespace SMEKernels1x4SplitUnit {
         // shared L2 without writing anything: 2 = NEON loads (asm sink),
         // 3 = prfm pldl2keep per 128 B line. 0/1 = no prefetch.
         int    b_prefetch = 0;
+        // After a worker writes a packed panel: 0 nothing, 1 dc cvac every line
+        // (clean to L2), 2 dc civac (clean + drop from the writer's L1).
+        int    flush = 0;
         // Who produces packed_A (k-major micro-panels):
         //   0  workers copy rows (prepack), the SME thread transposes in ZA (default)
         //   1  workers transpose with NEON 4x4 zip/trn blocks -> packed_A directly
