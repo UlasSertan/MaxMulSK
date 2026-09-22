@@ -37,6 +37,10 @@ namespace SMEKernels1x4SplitUnit {
         // direct-B: no B packing at all; the micro-kernel reads B from the source
         // with row stride N (each k-step is still one contiguous 256 B x4 load).
         bool   direct_b = false;
+        // H2: with direct_b, workers can pull the NEXT B panel's rows into the
+        // shared L2 without writing anything: 2 = NEON loads (asm sink),
+        // 3 = prfm pldl2keep per 128 B line. 0/1 = no prefetch.
+        int    b_prefetch = 0;
         // Who produces packed_A (k-major micro-panels):
         //   0  workers copy rows (prepack), the SME thread transposes in ZA (default)
         //   1  workers transpose with NEON 4x4 zip/trn blocks -> packed_A directly

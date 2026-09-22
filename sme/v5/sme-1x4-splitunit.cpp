@@ -162,6 +162,23 @@ namespace SMEKernels1x4SplitUnit {
     void probe_pack_A_neon(int mode, const float* A, size_t K, size_t m, size_t kk, size_t kcl, float* dst) {
         if (mode == 1) pack_A_panel_neon_t(A, K, m, kk, kcl, dst); else pack_A_panel_neon_g(A, K, m, kk, kcl, dst);
     }
+    // H2 helpers: touch a B panel (kcl rows x 256 B, row stride N) so its lines land in
+    // the cluster L2 as clean lines; nothing is written.
+    __attribute__((noinline))
+    static void touch_B_panel_loads(const float* RESTRICT B, size_t N, size_t kk, size_t n, size_t kcl) {
+        for (size_t k = 0; k < kcl; k++) {
+            const float* s = B + (kk + k) * N + n;
+            float32x4x4_t v0 = vld1q_f32_x4(s), v1 = vld1q_f32_x4(s + 16), v2 = vld1q_f32_x4(s + 32), v3 = vld1q_f32_x4(s + 48);
+            __asm__ volatile("" :: "w"(v0.val[0]), "w"(v0.val[3]), "w"(v1.val[0]), "w"(v1.val[3]), "w"(v2.val[0]), "w"(v2.val[3]), "w"(v3.val[0]), "w"(v3.val[3]));
+        }
+    }
+    __attribute__((noinline))
+    static void touch_B_panel_prfm(const float* RESTRICT B, size_t N, size_t kk, size_t n, size_t kcl) {
+        for (size_t k = 0; k < kcl; k++) {
+            const float* s = B + (kk + k) * N + n;
+            __asm__ volatile("prfm pldl2keep, [%0]\n\tprfm pldl2keep, [%0, #128]" :: "r"(s) : "memory");
+        }
+    }
     void probe_prepack_A(const float* A, size_t K, size_t m, size_t kk, size_t kcl, float* dst) { prepack_A_panel(A, K, m, kk, kcl, dst); }
     void probe_pack_B(const float* B, size_t N, size_t kk, size_t n, size_t kcl, float* dst) { pack_B_panel(B, N, kk, n, kcl, dst); }
 
@@ -232,7 +249,7 @@ namespace SMEKernels1x4SplitUnit {
     struct Task { uint8_t kind; uint32_t idx; };   // kind 0 = prepack A panel idx, 1 = pack B panel idx
     struct Job {
         const float* A; const float* B; size_t K, N, kk, kcl;
-        float* prepack_A; float* packed_A; float* packed_B; int a_mode;
+        float* prepack_A; float* packed_A; float* packed_B; int a_mode; int b_prefetch;
         std::vector<Task> tasks;
         std::atomic<uint32_t> next{0};
         std::atomic<uint32_t>* a_ready; std::atomic<uint32_t>* b_ready;
@@ -267,7 +284,9 @@ namespace SMEKernels1x4SplitUnit {
                         else                     prepack_A_panel(j->A, j->K, 16 * tk.idx, j->kk, j->kcl, j->prepack_A + (size_t)tk.idx * 16 * j->kcl);
                         j->a_ready[tk.idx].store(1, std::memory_order_release);
                     }
-                    else              { pack_B_panel(j->B, j->N, j->kk, 64 * tk.idx, j->kcl, j->packed_B + (size_t)tk.idx * j->kcl * 64);   j->b_ready[tk.idx].store(1, std::memory_order_release); }
+                    else if (tk.kind == 1) { pack_B_panel(j->B, j->N, j->kk, 64 * tk.idx, j->kcl, j->packed_B + (size_t)tk.idx * j->kcl * 64); j->b_ready[tk.idx].store(1, std::memory_order_release); }
+                    else if (tk.kind == 2) { touch_B_panel_loads(j->B, j->N, j->kk, 64 * tk.idx, j->kcl); j->b_ready[tk.idx].store(1, std::memory_order_release); }
+                    else                   { touch_B_panel_prfm(j->B, j->N, j->kk, 64 * tk.idx, j->kcl);  j->b_ready[tk.idx].store(1, std::memory_order_release); }
                 }
                 j->done.fetch_add(1, std::memory_order_release);
             }
@@ -657,7 +676,7 @@ namespace SMEKernels1x4SplitUnit {
         if (g_ctx.a_ready.size() < na) g_ctx.a_ready = std::vector<std::atomic<uint32_t>>(na);
         if (g_ctx.b_ready.size() < nb) g_ctx.b_ready = std::vector<std::atomic<uint32_t>>(nb);
         MAXMULSK_HOOK_END(allocation);
-        const bool use_pool = a_w || b_w;
+        const bool use_pool = a_w || b_w || (p.direct_b && p.b_prefetch >= 2);
         Pool* pl = use_pool ? &pool(p.workers, p.worker_qos) : nullptr;
 
         for (size_t kk = 0; kk < K; kk += Kc) {
@@ -668,17 +687,19 @@ namespace SMEKernels1x4SplitUnit {
                 for (size_t i = 0; i < na; i++) g_ctx.a_ready[i].store(0, std::memory_order_relaxed);
                 for (size_t i = 0; i < nb; i++) g_ctx.b_ready[i].store(0, std::memory_order_relaxed);
                 job.A = A; job.B = B; job.K = K; job.N = N; job.kk = kk; job.kcl = kcl;
-                job.prepack_A = g_ctx.prepack_A.get(); job.packed_A = g_ctx.packed_A.get(); job.packed_B = g_ctx.packed_B.get(); job.a_mode = p.a_mode; job.a_ready = g_ctx.a_ready.data(); job.b_ready = g_ctx.b_ready.data();
+                job.prepack_A = g_ctx.prepack_A.get(); job.packed_A = g_ctx.packed_A.get(); job.packed_B = g_ctx.packed_B.get(); job.a_mode = p.a_mode; job.b_prefetch = p.b_prefetch; job.a_ready = g_ctx.a_ready.data(); job.b_ready = g_ctx.b_ready.data();
                 // task order = the SME thread's consumption order: M->N needs every B
                 // panel for the first A panel (B first, then A); N->M needs all of A
                 // before the first B panel (A first, then B).
                 g_ctx.tasks.clear();
+                const uint8_t bkind = (p.direct_b && p.b_prefetch >= 2) ? (uint8_t)p.b_prefetch : (uint8_t)1;
+                const bool b_tasks = b_w || (p.direct_b && p.b_prefetch >= 2);
                 if (order_mn) {
-                    if (b_w) for (uint32_t b = 0; b < nb; b++) g_ctx.tasks.push_back({1, b});
+                    if (b_tasks) for (uint32_t b = 0; b < nb; b++) g_ctx.tasks.push_back({bkind, b});
                     if (a_w) for (uint32_t a = (uint32_t)p.a_split; a < na; a++) g_ctx.tasks.push_back({0, a});
                 } else {
                     if (a_w) for (uint32_t a = (uint32_t)p.a_split; a < na; a++) g_ctx.tasks.push_back({0, a});
-                    if (b_w) for (uint32_t b = 0; b < nb; b++) g_ctx.tasks.push_back({1, b});
+                    if (b_tasks) for (uint32_t b = 0; b < nb; b++) g_ctx.tasks.push_back({bkind, b});
                 }
                 job.tasks.swap(g_ctx.tasks);
                 pl->job.store(&job, std::memory_order_release);
