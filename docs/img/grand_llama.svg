@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="620" viewBox="0 0 820 620" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11">
+<text x="20" y="24" font-size="13.5" font-weight="600" fill="#8b949e">LLaMA shapes (N = 256, M × K vary)</text>
+<text x="20" y="40" font-size="10.5" fill="#9aa4ae">GFLOP/s, single thread, Apple M4 · 27 Sep 2026, one session, mean of 2 runs · y axis starts at 500, not 0</text>
+<line x1="62.0" y1="568.0" x2="688.0" y2="568.0" stroke="#d0d7de" stroke-width="1" opacity="0.38"/>
+<text x="53" y="571.5" text-anchor="end" font-size="10" fill="#8b949e">500</text>
+<line x1="62.0" y1="455.6" x2="688.0" y2="455.6" stroke="#d0d7de" stroke-width="1" opacity="0.38"/>
+<text x="53" y="459.1" text-anchor="end" font-size="10" fill="#8b949e">700</text>
+<line x1="62.0" y1="343.1" x2="688.0" y2="343.1" stroke="#d0d7de" stroke-width="1" opacity="0.38"/>
+<text x="53" y="346.6" text-anchor="end" font-size="10" fill="#8b949e">900</text>
+<line x1="62.0" y1="230.7" x2="688.0" y2="230.7" stroke="#d0d7de" stroke-width="1" opacity="0.38"/>
+<text x="53" y="234.2" text-anchor="end" font-size="10" fill="#8b949e">1100</text>
+<line x1="62.0" y1="118.2" x2="688.0" y2="118.2" stroke="#d0d7de" stroke-width="1" opacity="0.38"/>
+<text x="53" y="121.7" text-anchor="end" font-size="10" fill="#8b949e">1300</text>
+<text x="96.0" y="176.6" text-anchor="middle" font-size="9.5" fill="#0969da">1180</text>
+<text x="96.0" y="135.9" text-anchor="middle" font-size="9.5" fill="#9a6700">1253</text>
+<text x="96.0" y="156.6" text-anchor="middle" font-size="9.5" fill="#57606a">1216</text>
+<text x="96.0" y="299.7" text-anchor="middle" font-size="9.5" fill="#bc4c00">961</text>
+<text x="207.6" y="144.9" text-anchor="middle" font-size="9.5" fill="#0969da">1251</text>
+<text x="207.6" y="113.9" text-anchor="middle" font-size="9.5" fill="#9a6700">1292</text>
+<text x="207.6" y="129.4" text-anchor="middle" font-size="9.5" fill="#57606a">1278</text>
+<text x="207.6" y="555.7" text-anchor="middle" font-size="9.5" fill="#bc4c00">506</text>
+<text x="319.2" y="185.6" text-anchor="middle" font-size="9.5" fill="#0969da">1164</text>
+<text x="319.2" y="128.8" text-anchor="middle" font-size="9.5" fill="#9a6700">1265</text>
+<text x="319.2" y="151.8" text-anchor="middle" font-size="9.5" fill="#57606a">1224</text>
+<text x="319.2" y="426.3" text-anchor="middle" font-size="9.5" fill="#bc4c00">736</text>
+<text x="430.8" y="151.3" text-anchor="middle" font-size="9.5" fill="#0969da">1225</text>
+<text x="430.8" y="128.7" text-anchor="middle" font-size="9.5" fill="#9a6700">1265</text>
+<text x="430.8" y="166.8" text-anchor="middle" font-size="9.5" fill="#57606a">1209</text>
+<text x="430.8" y="431.9" text-anchor="middle" font-size="9.5" fill="#bc4c00">726</text>
+<text x="542.4" y="146.9" text-anchor="middle" font-size="9.5" fill="#0969da">1233</text>
+<text x="542.4" y="125.7" text-anchor="middle" font-size="9.5" fill="#9a6700">1271</text>
+<text x="542.4" y="162.4" text-anchor="middle" font-size="9.5" fill="#57606a">1210</text>
+<text x="542.4" y="427.1" text-anchor="middle" font-size="9.5" fill="#bc4c00">735</text>
+<text x="654.0" y="182.6" text-anchor="middle" font-size="9.5" fill="#0969da">1170</text>
+<text x="654.0" y="129.3" text-anchor="middle" font-size="9.5" fill="#9a6700">1264</text>
+<text x="654.0" y="152.9" text-anchor="middle" font-size="9.5" fill="#57606a">1222</text>
+<text x="654.0" y="415.1" text-anchor="middle" font-size="9.5" fill="#bc4c00">756</text>
+<polyline points="96.0,185.6 207.6,145.5 319.2,194.6 430.8,160.3 542.4,155.9 654.0,191.6" fill="none" stroke="#0969da" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="96.0" cy="185.6" r="3.6" fill="#0969da"/>
+<circle cx="207.6" cy="145.5" r="3.6" fill="#0969da"/>
+<circle cx="319.2" cy="194.6" r="3.6" fill="#0969da"/>
+<circle cx="430.8" cy="160.3" r="3.6" fill="#0969da"/>
+<circle cx="542.4" cy="155.9" r="3.6" fill="#0969da"/>
+<circle cx="654.0" cy="191.6" r="3.6" fill="#0969da"/>
+<polyline points="96.0,144.9 207.6,122.9 319.2,137.8 430.8,137.7 542.4,134.7 654.0,138.3" fill="none" stroke="#9a6700" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="96.0" cy="144.9" r="3.6" fill="#9a6700"/>
+<circle cx="207.6" cy="122.9" r="3.6" fill="#9a6700"/>
+<circle cx="319.2" cy="137.8" r="3.6" fill="#9a6700"/>
+<circle cx="430.8" cy="137.7" r="3.6" fill="#9a6700"/>
+<circle cx="542.4" cy="134.7" r="3.6" fill="#9a6700"/>
+<circle cx="654.0" cy="138.3" r="3.6" fill="#9a6700"/>
+<polyline points="96.0,165.6 207.6,130.7 319.2,160.8 430.8,169.3 542.4,168.7 654.0,161.9" fill="none" stroke="#57606a" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="96.0" cy="165.6" r="3.6" fill="#57606a"/>
+<circle cx="207.6" cy="130.7" r="3.6" fill="#57606a"/>
+<circle cx="319.2" cy="160.8" r="3.6" fill="#57606a"/>
+<circle cx="430.8" cy="169.3" r="3.6" fill="#57606a"/>
+<circle cx="542.4" cy="168.7" r="3.6" fill="#57606a"/>
+<circle cx="654.0" cy="161.9" r="3.6" fill="#57606a"/>
+<polyline points="96.0,308.7 207.6,564.7 319.2,435.3 430.8,440.9 542.4,436.1 654.0,424.1" fill="none" stroke="#bc4c00" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="96.0" cy="308.7" r="3.6" fill="#bc4c00"/>
+<circle cx="207.6" cy="564.7" r="3.6" fill="#bc4c00"/>
+<circle cx="319.2" cy="435.3" r="3.6" fill="#bc4c00"/>
+<circle cx="430.8" cy="440.9" r="3.6" fill="#bc4c00"/>
+<circle cx="542.4" cy="436.1" r="3.6" fill="#bc4c00"/>
+<circle cx="654.0" cy="424.1" r="3.6" fill="#bc4c00"/>
+<text x="700" y="195.1" font-size="11" font-weight="400" fill="#0969da">MaxMulSK v5</text>
+<text x="700" y="141.8" font-size="11" font-weight="400" fill="#9a6700">MpGEMM</text>
+<text x="700" y="165.4" font-size="11" font-weight="400" fill="#57606a">Accelerate</text>
+<text x="700" y="427.6" font-size="11" font-weight="400" fill="#bc4c00">OpenBLAS</text>
+<text x="96.0" y="588.0" text-anchor="middle" font-size="10.5" fill="#8b949e">4096×4096</text>
+<text x="207.6" y="588.0" text-anchor="middle" font-size="10.5" fill="#8b949e">11008×4096</text>
+<text x="319.2" y="588.0" text-anchor="middle" font-size="10.5" fill="#8b949e">4096×11008</text>
+<text x="430.8" y="588.0" text-anchor="middle" font-size="10.5" fill="#8b949e">5120×5120</text>
+<text x="542.4" y="588.0" text-anchor="middle" font-size="10.5" fill="#8b949e">13824×5120</text>
+<text x="654.0" y="588.0" text-anchor="middle" font-size="10.5" fill="#8b949e">5120×13824</text>
+<line x1="62.0" y1="568.0" x2="688.0" y2="568.0" stroke="#8b949e" stroke-width="1" opacity="0.55"/>
+</svg>

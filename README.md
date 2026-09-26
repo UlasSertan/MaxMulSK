@@ -13,15 +13,61 @@ and writes ZA back to C. You pass three pointers and three sizes.
 
 - **~2.0 TFLOP/s** in the raw SME micro-kernel. That is 2008 to 2010 GFLOP/s of
   pure compute, isolated by fitting `t(Kc) = a + b·Kc` and reading the slope.
-- **1.40 to 1.77 TFLOP/s** end to end on square GEMM, from 256³ to 4096³.
-  Packing, blocking and writeback are all inside the timed region.
-- **Faster than tuned OpenBLAS on every Apple M4 FP32 workload tested.**
-  1.01× to 1.31× on squares and 1.36× to 2.23× on LLM-shaped matrices. The
-  OpenBLAS it is measured against was built so that it reaches its own SME
-  kernels.
-- **In the same band as Apple Accelerate.** Narrowly but consistently ahead at
-  1024³ and 4096³, by 1.05× and 1.02×, in all three runs at both shapes. Behind
-  it by 5 to 17% on the other shapes.
+- **v5, the current development kernel, against every FP32 GEMM tested on Apple
+  M4** (single thread, 35 shapes: squares, LLM-shaped, DeepSeek-V3 and LLaMA;
+  geometric mean of paired ratios, 27 September 2026):
+  - **1.76× tuned OpenBLAS.** Ahead on 34 of 35 shapes, tied on 256³.
+  - **1.12× Apple Accelerate.** Ahead by more than 5% on 21 shapes, behind on
+    256³ (0.80×).
+  - **1.01× MpGEMM.** Ahead by more than 5% on 13 shapes (large M, long-K LLM
+    shapes, wide DeepSeek-V3 shapes), behind on 5: 256³ (0.86×), two
+    DeepSeek-V3 shapes with N = 2112 (0.91× and 0.94×) and the two long-K LLaMA
+    shapes (0.92× and 0.93×).
+  - **1.11× the published v4c path**, and never behind it by more than 2.2%.
+- **End to end means end to end.** Allocation, packing, blocking and writeback
+  are inside every timed call, for every library.
+
+> **v5 is in development and its code is not in this repository yet.** The
+> numbers above are measured, but the published kernels are v3
+> (`sme/v3/`) and v4c (`sme/v4/`). v5 is bit-identical to v4 in its output; what
+> changed is how it packs and how it writes C. It will be documented here when
+> its code is published.
+
+<img src="docs/img/grand_square.svg" width="100%" alt="Square GEMM: MaxMulSK v5 vs MpGEMM, Accelerate and OpenBLAS">
+
+<img src="docs/img/grand_llm.svg" width="100%" alt="LLM-shaped GEMM: MaxMulSK v5 vs MpGEMM, Accelerate and OpenBLAS">
+
+<img src="docs/img/grand_deepseek_m64.svg" width="100%" alt="DeepSeek-V3 shapes, M = 64: MaxMulSK v5 vs MpGEMM, Accelerate and OpenBLAS">
+
+<img src="docs/img/grand_deepseek_m128.svg" width="100%" alt="DeepSeek-V3 shapes, M = 128: MaxMulSK v5 vs MpGEMM, Accelerate and OpenBLAS">
+
+<img src="docs/img/grand_deepseek_m4096.svg" width="100%" alt="DeepSeek-V3 shapes, M = 4096: MaxMulSK v5 vs MpGEMM, Accelerate and OpenBLAS">
+
+<img src="docs/img/grand_llama.svg" width="100%" alt="LLaMA shapes: MaxMulSK v5 vs MpGEMM, Accelerate and OpenBLAS">
+
+<sub>Apple M4, macOS 26.6.2, AC power, single thread, FP32, row-major C = A·B.
+One session on 27 September 2026, two runs in separate processes; each chart
+point is the mean of the two runs' medians. All six participants (v5, v4c, v3,
+MpGEMM, OpenBLAS, Accelerate) ran in the same rounds with the call order rotated,
+and every ratio quoted above is paired within a round. Before timing, every
+shape was checked: v5 bit-identical to v4 with the same plan, and every library
+within tolerance of an FP64 reference. Accelerate was pinned to one thread with
+`BLASSetThreading`; OpenBLAS is the build that reaches its own SME kernels
+(`OPENBLAS_DIRECT_LIMIT=1792`, one thread). Absolute GFLOP/s in this session
+came out 5 to 10% below earlier sessions for every library alike, most likely
+thermal, so read the ratios rather than the absolute numbers. The y axes start
+near the data, not at zero, as stated on each chart.</sub>
+
+<details>
+<summary><b>Earlier sessions</b>: 9 September (v3 vs Accelerate and OpenBLAS) and 13 September (v4c vs Accelerate)</summary>
+
+<br>
+
+In the 9 September session the published v3 path reached **1.40 to 1.77
+TFLOP/s** end to end on squares from 256³ to 4096³, was faster than tuned
+OpenBLAS on every workload tested (1.01× to 1.31× on squares, 1.36× to 2.23× on
+LLM shapes), and sat in the same band as Accelerate: ahead at 1024³ and 4096³ by
+1.05× and 1.02×, behind by 5 to 17% elsewhere.
 
 <img src="docs/img/headline_square.svg" width="100%" alt="Square GEMM: MaxMulSK vs Apple Accelerate vs tuned OpenBLAS">
 
@@ -51,6 +97,8 @@ paper's table; the 6 LLaMA shapes from the same run (N = 256) are not charted
 here: v4c is behind Accelerate on them by 3 to 5%. Raw data:
 [bench/results/2026-09-13/v4c3.csv](bench/results/2026-09-13/v4c3.csv).</sub>
 
+</details>
+
 ---
 
 > Hey, it's Ulaş. If you're wondering why this project exists in the first place
@@ -66,6 +114,55 @@ here: v4c is behind Accelerate on them by 3 to 5%. Raw data:
 ---
 
 ## Benchmarking and comparison
+
+| | Shape (M×N×K) | v5 | MpGEMM | Accelerate | OpenBLAS | v5 vs MpGEMM | vs Accelerate | vs OpenBLAS |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| square | 256×256×256 | 1244 | 1448 | **1601** | 1270 | 0.86× | 0.80× | 0.98× |
+|  | 512×512×512 | 1580 | **1648** | 1631 | 1503 | 0.96× | 0.97× | **1.05×** |
+|  | 1024×1024×1024 | 1618 | **1680** | 1530 | 1362 | 0.97× | **1.07×** | **1.18×** |
+|  | 2048×2048×2048 | 1494 | 1404 | **1533** | 1189 | **1.06×** | 0.97× | **1.26×** |
+|  | 4096×4096×4096 | **1518** | 1382 | 1464 | 1158 | **1.10×** | 1.04× | **1.31×** |
+| llm | 64×512×8192 | 995 | **1003** | 914 | 680 | 0.99× | **1.09×** | **1.46×** |
+|  | 64×512×16384 | **906** | 857 | 808 | 450 | **1.06×** | **1.12×** | **2.00×** |
+|  | 64×512×32768 | **891** | 856 | 801 | 458 | 1.04× | **1.11×** | **1.94×** |
+|  | 128×512×8192 | 1152 | **1162** | 1094 | 609 | 0.99× | **1.05×** | **1.89×** |
+|  | 128×512×16384 | 1123 | **1126** | 1042 | 462 | 1.00× | **1.08×** | **2.42×** |
+|  | 128×512×32768 | **1135** | 1131 | 1062 | 481 | 1.00× | **1.07×** | **2.36×** |
+| deepseek | 64×2112×7168 | 925 | **1022** | 962 | 483 | 0.91× | 0.96× | **1.92×** |
+|  | 64×24576×1536 | **896** | 838 | 588 | 396 | **1.07×** | **1.53×** | **2.26×** |
+|  | 64×32768×512 | **949** | 849 | 593 | 365 | **1.12×** | **1.60×** | **2.60×** |
+|  | 64×7168×16384 | **921** | 866 | 624 | 381 | **1.06×** | **1.48×** | **2.42×** |
+|  | 64×4096×7168 | 895 | **933** | 588 | 412 | 0.96× | **1.52×** | **2.16×** |
+|  | 64×7168×2048 | **900** | 885 | 643 | 411 | 1.02× | **1.40×** | **2.18×** |
+|  | 128×2112×7168 | 1200 | **1273** | 1229 | 497 | 0.94× | 0.98× | **2.42×** |
+|  | 128×24576×1536 | **1176** | 1100 | 876 | 406 | **1.07×** | **1.35×** | **2.89×** |
+|  | 128×32768×512 | **1232** | 1120 | 830 | 370 | **1.10×** | **1.48×** | **3.33×** |
+|  | 128×7168×16384 | **1198** | 1078 | 815 | 593 | **1.11×** | **1.47×** | **2.01×** |
+|  | 128×4096×7168 | 1196 | **1208** | 877 | 417 | 0.99× | **1.37×** | **2.87×** |
+|  | 128×7168×2048 | **1183** | 1147 | 941 | 415 | 1.03× | **1.26×** | **2.85×** |
+|  | 4096×2112×7168 | **1495** | 1426 | 1402 | 1258 | 1.05× | **1.07×** | **1.19×** |
+|  | 4096×24576×1536 | 1474 | 1352 | **1477** | 1228 | **1.09×** | 1.00× | **1.20×** |
+|  | 4096×32768×512 | **1483** | 1418 | 1408 | 1330 | 1.04× | **1.05×** | **1.12×** |
+|  | 4096×7168×16384 | **1463** | 1286 | 1347 | 1156 | **1.13×** | **1.08×** | **1.26×** |
+|  | 4096×4096×7168 | **1424** | 1325 | 1307 | 1114 | **1.07×** | **1.09×** | **1.28×** |
+|  | 4096×7168×2048 | 1366 | 1297 | **1422** | 1189 | **1.05×** | 0.96× | **1.15×** |
+| llama | 4096×256×4096 | 1180 | **1253** | 1216 | 961 | 0.95× | 0.97× | **1.23×** |
+|  | 11008×256×4096 | 1251 | **1292** | 1278 | 506 | 0.96× | 0.98× | **2.47×** |
+|  | 4096×256×11008 | 1164 | **1265** | 1224 | 736 | 0.92× | 0.95× | **1.59×** |
+|  | 5120×256×5120 | 1225 | **1265** | 1209 | 726 | 0.98× | 1.02× | **1.69×** |
+|  | 13824×256×5120 | 1233 | **1271** | 1210 | 735 | 0.98× | 1.02× | **1.68×** |
+|  | 5120×256×13824 | 1170 | **1264** | 1222 | 756 | 0.93× | 0.97× | **1.55×** |
+
+GFLOP/s, single thread, mean of two runs, 27 September 2026 (the session behind
+the charts above). Ratios are v5's speed over the other library, paired within
+rounds and averaged geometrically over the two runs. Bold marks the fastest
+library on a row and ratios of 1.05× or more. Measured with the project's
+separate benchmark harness.
+
+<details>
+<summary>9 September table (v3, Accelerate, OpenBLAS)</summary>
+
+<br>
 
 | | Shape | MaxMulSK | Accelerate | OpenBLAS | vs Accelerate | vs OpenBLAS |
 |---|---|---:|---:|---:|---:|---:|
@@ -83,11 +180,15 @@ here: v4c is behind Accelerate on them by 3 to 5%. Raw data:
 
 GFLOP/s, single thread. Generated by `bench/bench_headline.cpp`.
 
+</details>
+
 ### What is compared, and how
 
-**Apple Accelerate** and **OpenBLAS** are the end-to-end baselines. Both are
-complete GEMM libraries that you call the same way you call MaxMulSK, so
-comparing them side by side is fair.
+**Apple Accelerate**, **OpenBLAS** and **MpGEMM** are the end-to-end baselines.
+All three are complete GEMM entry points that you call the same way you call
+MaxMulSK, so comparing them side by side is fair. MpGEMM is the SME GEMM from
+the paper whose DeepSeek-V3 and LLaMA shape tables this repo reuses; it is
+called through its `row_sgemm` entry point.
 
 **Arm KleidiAI** is deliberately left out of the table. KleidiAI ships
 micro-kernels and packing routines, not a blocked end-to-end GEMM. To benchmark
@@ -167,7 +268,7 @@ That table only holds entries that beat the default across three separate runs.
 
 ## Kernel evolution
 
-There are five generations. Each one targets whatever was actually limiting the
+There are six generations. Each one targets whatever was actually limiting the
 one before it.
 
 | Generation | When | What changed | Bottleneck it attacked | Result |
@@ -177,6 +278,7 @@ one before it.
 | **v1, SME** <br><sub>4×1, 2×2, 1×4, 1×4-sym</sub> | 2026-04 → 07 | ZA outer-product accumulators, BLIS-style M/K/N blocking, four tile geometries | SIMD registers being the wrong tool for a matrix product | ~1200–1330 GFLOP/s |
 | **v2, Acc** <br><sub>1×4-Acc, 1×4-Acc-Kc</sub> | 2026-09-06 | ZA lifetime lifted out of the micro-kernel: K innermost, ZA held across all of K, read-modify-write dropped from the store, store turned row-major, pack_A moved to a ZA transpose | per-call fixed cost, **357 ns → 52 ns** | 1773 at 1024³, but full-K packing cost it 4096³ and large K |
 | **v3, Acc-KcOut** <br><sub>all three geometries</sub> | 2026-09-09 | An outer Kc panel above the tile nest, so packed panels scale with Kc instead of K | v2's full-K packing footprint | **1.40–1.77 TFLOP/s** across the range |
+| **v4, Nc-blocked** <br><sub>v4c path</sub> | 2026-09-13 | An Nc block above the Mc loop bounds the packed working set whatever N is; a shape rule (v4c) picks between two fixed plans | packed B growing with N | 1.00× v3 over the 35 shapes: 1.11× on LLaMA, 1.05× on LLM shapes, 0.96× on squares |
 
 The fixed-cost reduction in v2 and v3 is worth a closer look, because it scales
 with the tile geometry in a way that has a clear explanation:
