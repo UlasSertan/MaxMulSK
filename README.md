@@ -1,6 +1,6 @@
 # MaxMulSK
 
-A single-threaded FP32 GEMM library for Apple M4, written against Arm SME/SME2.
+An FP32 GEMM library for Apple M4, written against Arm SME/SME2.
 
 This is not just a micro-kernel. MaxMulSK handles the whole execution path. It
 packs A and B into kernel-friendly layouts, blocks the work over M, K and N for
@@ -13,6 +13,117 @@ and writes ZA back to C. You pass three pointers and three sizes.
 
 - **~2.0 TFLOP/s** in the raw SME micro-kernel. That is 2008 to 2010 GFLOP/s of
   pure compute, isolated by fitting `t(Kc) = a + b·Kc` and reading the slope.
+- **End to end means end to end.** Allocation, packing, blocking and writeback
+  are inside every timed call, for every library.
+
+### 3 October 2026: standard cold benchmark, single- and multi-threaded
+
+- **MaxMulSK Multi-Threaded**, in development, against every FP32 GEMM tested on
+  Apple M4, single- and multi-threaded (35 shapes: squares, LLM-shaped,
+  DeepSeek-V3 and LLaMA; geometric mean of paired ratios):
+  - **1.37× Apple Accelerate (multi-threaded).** Ahead by more than 5% on 25
+    shapes, behind on 2: DeepSeek-V3 4096×24576×1536 (0.93×) and 4096×7168×2048
+    (0.95×).
+  - **1.32× MpGEMM (multi-threaded).** Ahead by more than 5% on 34 shapes, never
+    behind.
+  - **1.56× Accelerate (1 thread), 1.41× MpGEMM (1 thread), 1.31× MaxMulSK
+    v5.1.** Never behind any of them.
+  - At or above 85% of the SME's 2010 GFLOP/s ceiling on 33 of 35 shapes, up to
+    1912 GFLOP/s (1024³, 95%).
+  - The largest leads are on inference-shaped GEMMs with a narrow M: 1.5× to 2.5×
+    Accelerate (multi-threaded) on the DeepSeek-V3 shapes with M = 64.
+- **MaxMulSK v5.1 (single thread)**: 1.19× Accelerate (1 thread), 1.08× MpGEMM
+  (1 thread), 1.05× Accelerate (multi-threaded) and 1.02× MpGEMM
+  (multi-threaded).
+
+> **These are cold measurements.** Every measured block started with the CPU at
+> or below 40 °C. The cold test aims to measure each kernel's maximum potential
+> under suitable conditions. In realistic use kernels run back to back, the
+> machine heats up, and the differences between libraries change; we are
+> preparing a sustained (hot) benchmark for that case.
+
+> **MaxMulSK Multi-Threaded and v5.1 are in development; their code is not in
+> this repository yet.** The numbers are measured; the published kernels are v3
+> (`sme/v3/`) and v4c (`sme/v4/`). Both will be documented here when their code
+> is published.
+
+<img src="docs/img/bench9_square.svg" width="100%" alt="Square GEMM, cold: MaxMulSK Multi-Threaded and v5.1 vs MpGEMM and Accelerate, single and multi-threaded">
+
+<img src="docs/img/bench9_llm.svg" width="100%" alt="LLM-shaped GEMM, cold: MaxMulSK vs MpGEMM and Accelerate">
+
+<img src="docs/img/bench9_deepseek_m64.svg" width="100%" alt="DeepSeek-V3 shapes, M = 64, cold: MaxMulSK vs MpGEMM and Accelerate">
+
+<img src="docs/img/bench9_deepseek_m128.svg" width="100%" alt="DeepSeek-V3 shapes, M = 128, cold: MaxMulSK vs MpGEMM and Accelerate">
+
+<img src="docs/img/bench9_deepseek_m4096.svg" width="100%" alt="DeepSeek-V3 shapes, M = 4096, cold: MaxMulSK vs MpGEMM and Accelerate">
+
+<img src="docs/img/bench9_llama.svg" width="100%" alt="LLaMA shapes, cold: MaxMulSK vs MpGEMM and Accelerate">
+
+<sub>Apple M4 (MacBook Air 13", fanless), macOS 26.6.2, AC power with the battery
+charged and not charging, FP32, row-major C = A·B. One overnight session on 3
+October 2026 (230 minutes). Libraries are compared in pairs: nine pairs, each run
+in three blocks per shape, a block being A B B A or B A A B segments of at least
+0.4 s of back-to-back calls; the ratio is paired within the block. A block starts
+only when the CPU is at or below 40 °C, and is repeated if the chip's clock,
+read after every segment, shows throttling. 980 of 980 blocks were valid. Every
+library was checked against an FP64 reference before timing; a v5.1-vs-v5.1
+block per shape stayed within 0.995–1.015, and indirect ratios through v5.1
+agree with the direct ones (median deviation 0.0%). Chart points are the median
+over a library's valid segments. Accelerate is pinned to one thread with
+`BLASSetThreading` or left at its default threading; MpGEMM is `row_sgemm` (one
+thread) or `dispatch_row_sgemm` (multi-threaded). OpenBLAS was not part of this
+session. The y axes start near the data, not at zero, as stated on each chart.</sub>
+
+<details>
+<summary>3 October table (GFLOP/s, cold; best per shape in bold)</summary>
+
+<br>
+
+| | Shape (M×N×K) | MaxMulSK Multi-Threaded | MaxMulSK v5.1 (1 thread) | Accelerate (multi-thread) | Accelerate (1 thread) | MpGEMM (multi-thread) | MpGEMM (1 thread) |
+|---|---|---:|---:|---:|---:|---:|---:|
+| square | 256×256×256 | 1598 | **1621** | 1605 | 1605 | 1575 | 1575 |
+|  | 512×512×512 | **1808** | 1758 | 1765 | 1765 | 1710 | 1786 |
+|  | 1024×1024×1024 | **1910** | 1855 | 1895 | 1674 | 1469 | 1888 |
+|  | 2048×2048×2048 | 1871 | 1809 | **1896** | 1666 | 1540 | 1547 |
+|  | 4096×4096×4096 | **1870** | 1793 | 1862 | 1595 | 1471 | 1543 |
+| llm | 64×512×8192 | **1736** | 1055 | 936 | 949 | 1098 | 1043 |
+|  | 64×512×16384 | **1740** | 983 | 846 | 851 | 1046 | 903 |
+|  | 64×512×32768 | **1715** | 983 | 952 | 853 | 1041 | 906 |
+|  | 128×512×8192 | **1816** | 1293 | 1181 | 1185 | 1345 | 1248 |
+|  | 128×512×16384 | **1811** | 1244 | 1263 | 1134 | 1304 | 1189 |
+|  | 128×512×32768 | **1791** | 1251 | 1276 | 1130 | 1304 | 1190 |
+| deepseek | 64×2112×7168 | **1788** | 992 | 1157 | 1010 | 1215 | 1076 |
+|  | 64×24576×1536 | **1608** | 937 | 702 | 599 | 1124 | 852 |
+|  | 64×32768×512 | **1465** | 978 | 713 | 612 | 1129 | 873 |
+|  | 64×7168×16384 | **1818** | 934 | 740 | 635 | 1275 | 869 |
+|  | 64×4096×7168 | **1713** | 945 | 695 | 596 | 1121 | 957 |
+|  | 64×7168×2048 | **1678** | 946 | 762 | 652 | 1116 | 895 |
+|  | 128×2112×7168 | **1834** | 1284 | 1488 | 1305 | 1437 | 1365 |
+|  | 128×24576×1536 | **1747** | 1233 | 1040 | 895 | 1340 | 1109 |
+|  | 128×32768×512 | **1709** | 1285 | 1015 | 867 | 1373 | 1160 |
+|  | 128×7168×16384 | **1843** | 1229 | 991 | 840 | 1502 | 1113 |
+|  | 128×4096×7168 | **1812** | 1242 | 1038 | 890 | 1389 | 1241 |
+|  | 128×7168×2048 | **1786** | 1248 | 1122 | 958 | 1352 | 1165 |
+|  | 4096×2112×7168 | **1878** | 1776 | 1863 | 1587 | 1448 | 1567 |
+|  | 4096×24576×1536 | 1855 | 1814 | **1991** | 1680 | 1510 | 1477 |
+|  | 4096×32768×512 | 1871 | 1825 | **1891** | 1601 | 1664 | 1580 |
+|  | 4096×7168×16384 | **1860** | 1759 | 1750 | 1491 | 1428 | 1437 |
+|  | 4096×4096×7168 | **1864** | 1798 | 1799 | 1535 | 1455 | 1559 |
+|  | 4096×7168×2048 | 1881 | 1823 | **1989** | 1729 | 1552 | 1533 |
+| llama | 4096×256×4096 | **1822** | 1537 | 1632 | 1391 | 1352 | 1452 |
+|  | 11008×256×4096 | **1845** | 1507 | 1642 | 1396 | 1370 | 1458 |
+|  | 4096×256×11008 | **1845** | 1577 | 1648 | 1405 | 1380 | 1474 |
+|  | 5120×256×5120 | **1845** | 1562 | 1628 | 1388 | 1356 | 1469 |
+|  | 13824×256×5120 | **1855** | 1553 | 1633 | 1393 | 1387 | 1470 |
+|  | 5120×256×13824 | **1836** | 1561 | 1640 | 1394 | 1400 | 1464 |
+
+</details>
+
+<details>
+<summary><b>29 September 2026</b>: v5.1 vs MpGEMM, Accelerate and OpenBLAS, single thread (the previous headline)</summary>
+
+<br>
+
 - **v5.1, the current development kernel, against every FP32 GEMM tested on
   Apple M4** (single thread, 35 shapes: squares, LLM-shaped, DeepSeek-V3 and
   LLaMA; geometric mean of paired ratios, 29 September 2026):
@@ -28,9 +139,6 @@ and writes ZA back to C. You pass three pointers and three sizes.
   time changes with the work that preceded it. The charts show the small squares
   both in back-to-back calls and in a mixed call order (see below); the exact
   mechanism is not fully resolved yet.
-- **End to end means end to end.** Allocation, packing, blocking and writeback
-  are inside every timed call, for every library.
-
 > **v5.1 is in development and its code is not in this repository yet.** The
 > numbers above are measured, but the published kernels are v3
 > (`sme/v3/`) and v4c (`sme/v4/`). v5.1 is bit-identical to v4 in its output;
@@ -73,6 +181,8 @@ plan, and every library within tolerance of an FP64 reference. Accelerate was
 pinned to one thread with `BLASSetThreading`; OpenBLAS is the build that reaches
 its own SME kernels (`OPENBLAS_DIRECT_LIMIT=1792`, one thread). The y axes
 start near the data, not at zero, as stated on each chart.</sub>
+
+</details>
 
 <details>
 <summary><b>Earlier sessions</b>: 9 September (v3 vs Accelerate and OpenBLAS), 13 September (v4c vs Accelerate) and 27 September (v5 vs MpGEMM, Accelerate and OpenBLAS)</summary>

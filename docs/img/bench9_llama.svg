@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="640" viewBox="0 0 820 640" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="11">
+<text x="20" y="24" font-size="13.5" font-weight="600" fill="#8b949e">LLaMA shapes (N = 256, M × K vary)</text>
+<text x="20" y="40" font-size="10.5" fill="#9aa4ae">GFLOP/s, Apple M4 (MacBook Air, fanless) · 3 Oct 2026 · cold: every block starts at ≤ 40 °C · y axis starts at 1300, not 0</text>
+<line x1="62.0" y1="588.0" x2="620.0" y2="588.0" stroke="#d0d7de" stroke-width="1" opacity="0.38"/>
+<text x="53" y="591.5" text-anchor="end" font-size="10" fill="#8b949e">1300</text>
+<line x1="62.0" y1="512.9" x2="620.0" y2="512.9" stroke="#d0d7de" stroke-width="1" opacity="0.38"/>
+<text x="53" y="516.4" text-anchor="end" font-size="10" fill="#8b949e">1400</text>
+<line x1="62.0" y1="437.7" x2="620.0" y2="437.7" stroke="#d0d7de" stroke-width="1" opacity="0.38"/>
+<text x="53" y="441.2" text-anchor="end" font-size="10" fill="#8b949e">1500</text>
+<line x1="62.0" y1="362.6" x2="620.0" y2="362.6" stroke="#d0d7de" stroke-width="1" opacity="0.38"/>
+<text x="53" y="366.1" text-anchor="end" font-size="10" fill="#8b949e">1600</text>
+<line x1="62.0" y1="287.4" x2="620.0" y2="287.4" stroke="#d0d7de" stroke-width="1" opacity="0.38"/>
+<text x="53" y="290.9" text-anchor="end" font-size="10" fill="#8b949e">1700</text>
+<line x1="62.0" y1="212.3" x2="620.0" y2="212.3" stroke="#d0d7de" stroke-width="1" opacity="0.38"/>
+<text x="53" y="215.8" text-anchor="end" font-size="10" fill="#8b949e">1800</text>
+<line x1="62.0" y1="137.1" x2="620.0" y2="137.1" stroke="#d0d7de" stroke-width="1" opacity="0.38"/>
+<text x="53" y="140.6" text-anchor="end" font-size="10" fill="#8b949e">1900</text>
+<line x1="62.0" y1="62.0" x2="620.0" y2="62.0" stroke="#d0d7de" stroke-width="1" opacity="0.38"/>
+<text x="53" y="65.5" text-anchor="end" font-size="10" fill="#8b949e">2000</text>
+<text x="96.0" y="186.9" text-anchor="middle" font-size="9.5" fill="#0a7d6e">1822</text>
+<text x="96.0" y="400.6" text-anchor="middle" font-size="9.5" fill="#0969da">1537</text>
+<text x="96.0" y="329.2" text-anchor="middle" font-size="9.5" fill="#57606a">1632</text>
+<text x="96.0" y="510.9" text-anchor="middle" font-size="9.5" fill="#9aa3ad">1391</text>
+<text x="96.0" y="539.9" text-anchor="middle" font-size="9.5" fill="#9a6700">1352</text>
+<text x="96.0" y="464.9" text-anchor="middle" font-size="9.5" fill="#d4a72c">1452</text>
+<text x="194.0" y="169.4" text-anchor="middle" font-size="9.5" fill="#0a7d6e">1845</text>
+<text x="194.0" y="423.6" text-anchor="middle" font-size="9.5" fill="#0969da">1507</text>
+<text x="194.0" y="322.3" text-anchor="middle" font-size="9.5" fill="#57606a">1642</text>
+<text x="194.0" y="506.9" text-anchor="middle" font-size="9.5" fill="#9aa3ad">1396</text>
+<text x="194.0" y="526.3" text-anchor="middle" font-size="9.5" fill="#9a6700">1370</text>
+<text x="194.0" y="460.6" text-anchor="middle" font-size="9.5" fill="#d4a72c">1458</text>
+<text x="292.0" y="169.3" text-anchor="middle" font-size="9.5" fill="#0a7d6e">1845</text>
+<text x="292.0" y="370.7" text-anchor="middle" font-size="9.5" fill="#0969da">1577</text>
+<text x="292.0" y="317.2" text-anchor="middle" font-size="9.5" fill="#57606a">1648</text>
+<text x="292.0" y="499.9" text-anchor="middle" font-size="9.5" fill="#9aa3ad">1405</text>
+<text x="292.0" y="518.7" text-anchor="middle" font-size="9.5" fill="#9a6700">1380</text>
+<text x="292.0" y="448.2" text-anchor="middle" font-size="9.5" fill="#d4a72c">1474</text>
+<text x="390.0" y="169.3" text-anchor="middle" font-size="9.5" fill="#0a7d6e">1845</text>
+<text x="390.0" y="382.1" text-anchor="middle" font-size="9.5" fill="#0969da">1562</text>
+<text x="390.0" y="332.8" text-anchor="middle" font-size="9.5" fill="#57606a">1628</text>
+<text x="390.0" y="512.6" text-anchor="middle" font-size="9.5" fill="#9aa3ad">1388</text>
+<text x="390.0" y="537.3" text-anchor="middle" font-size="9.5" fill="#9a6700">1356</text>
+<text x="390.0" y="452.3" text-anchor="middle" font-size="9.5" fill="#d4a72c">1469</text>
+<text x="488.0" y="162.3" text-anchor="middle" font-size="9.5" fill="#0a7d6e">1855</text>
+<text x="488.0" y="389.2" text-anchor="middle" font-size="9.5" fill="#0969da">1553</text>
+<text x="488.0" y="329.1" text-anchor="middle" font-size="9.5" fill="#57606a">1633</text>
+<text x="488.0" y="509.1" text-anchor="middle" font-size="9.5" fill="#9aa3ad">1393</text>
+<text x="488.0" y="524.6" text-anchor="middle" font-size="9.5" fill="#9a6700">1387</text>
+<text x="488.0" y="451.3" text-anchor="middle" font-size="9.5" fill="#d4a72c">1470</text>
+<text x="586.0" y="176.6" text-anchor="middle" font-size="9.5" fill="#0a7d6e">1836</text>
+<text x="586.0" y="382.8" text-anchor="middle" font-size="9.5" fill="#0969da">1561</text>
+<text x="586.0" y="323.5" text-anchor="middle" font-size="9.5" fill="#57606a">1640</text>
+<text x="586.0" y="519.4" text-anchor="middle" font-size="9.5" fill="#9aa3ad">1394</text>
+<text x="586.0" y="503.9" text-anchor="middle" font-size="9.5" fill="#9a6700">1400</text>
+<text x="586.0" y="456.0" text-anchor="middle" font-size="9.5" fill="#d4a72c">1464</text>
+<polyline points="96.0,195.9 194.0,178.4 292.0,178.3 390.0,178.3 488.0,171.3 586.0,185.6" fill="none" stroke="#0a7d6e" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="96.0" cy="195.9" r="3.6" fill="#0a7d6e"/>
+<circle cx="194.0" cy="178.4" r="3.6" fill="#0a7d6e"/>
+<circle cx="292.0" cy="178.3" r="3.6" fill="#0a7d6e"/>
+<circle cx="390.0" cy="178.3" r="3.6" fill="#0a7d6e"/>
+<circle cx="488.0" cy="171.3" r="3.6" fill="#0a7d6e"/>
+<circle cx="586.0" cy="185.6" r="3.6" fill="#0a7d6e"/>
+<polyline points="96.0,409.6 194.0,432.6 292.0,379.7 390.0,391.1 488.0,398.2 586.0,391.8" fill="none" stroke="#0969da" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="96.0" cy="409.6" r="3.6" fill="#0969da"/>
+<circle cx="194.0" cy="432.6" r="3.6" fill="#0969da"/>
+<circle cx="292.0" cy="379.7" r="3.6" fill="#0969da"/>
+<circle cx="390.0" cy="391.1" r="3.6" fill="#0969da"/>
+<circle cx="488.0" cy="398.2" r="3.6" fill="#0969da"/>
+<circle cx="586.0" cy="391.8" r="3.6" fill="#0969da"/>
+<polyline points="96.0,338.2 194.0,331.3 292.0,326.2 390.0,341.8 488.0,338.1 586.0,332.5" fill="none" stroke="#57606a" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="96.0" cy="338.2" r="3.6" fill="#57606a"/>
+<circle cx="194.0" cy="331.3" r="3.6" fill="#57606a"/>
+<circle cx="292.0" cy="326.2" r="3.6" fill="#57606a"/>
+<circle cx="390.0" cy="341.8" r="3.6" fill="#57606a"/>
+<circle cx="488.0" cy="338.1" r="3.6" fill="#57606a"/>
+<circle cx="586.0" cy="332.5" r="3.6" fill="#57606a"/>
+<polyline points="96.0,519.9 194.0,515.9 292.0,508.9 390.0,521.6 488.0,518.1 586.0,517.1" fill="none" stroke="#9aa3ad" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="96.0" cy="519.9" r="3.6" fill="#9aa3ad"/>
+<circle cx="194.0" cy="515.9" r="3.6" fill="#9aa3ad"/>
+<circle cx="292.0" cy="508.9" r="3.6" fill="#9aa3ad"/>
+<circle cx="390.0" cy="521.6" r="3.6" fill="#9aa3ad"/>
+<circle cx="488.0" cy="518.1" r="3.6" fill="#9aa3ad"/>
+<circle cx="586.0" cy="517.1" r="3.6" fill="#9aa3ad"/>
+<polyline points="96.0,548.9 194.0,535.3 292.0,527.7 390.0,546.3 488.0,523.0 586.0,512.9" fill="none" stroke="#9a6700" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="96.0" cy="548.9" r="3.6" fill="#9a6700"/>
+<circle cx="194.0" cy="535.3" r="3.6" fill="#9a6700"/>
+<circle cx="292.0" cy="527.7" r="3.6" fill="#9a6700"/>
+<circle cx="390.0" cy="546.3" r="3.6" fill="#9a6700"/>
+<circle cx="488.0" cy="523.0" r="3.6" fill="#9a6700"/>
+<circle cx="586.0" cy="512.9" r="3.6" fill="#9a6700"/>
+<polyline points="96.0,473.9 194.0,469.6 292.0,457.2 390.0,461.3 488.0,460.3 586.0,465.0" fill="none" stroke="#d4a72c" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="96.0" cy="473.9" r="3.6" fill="#d4a72c"/>
+<circle cx="194.0" cy="469.6" r="3.6" fill="#d4a72c"/>
+<circle cx="292.0" cy="457.2" r="3.6" fill="#d4a72c"/>
+<circle cx="390.0" cy="461.3" r="3.6" fill="#d4a72c"/>
+<circle cx="488.0" cy="460.3" r="3.6" fill="#d4a72c"/>
+<circle cx="586.0" cy="465.0" r="3.6" fill="#d4a72c"/>
+<text x="632" y="189.1" font-size="11" font-weight="400" fill="#0a7d6e">MaxMulSK Multi-Threaded</text>
+<text x="632" y="395.3" font-size="11" font-weight="400" fill="#0969da">MaxMulSK v5.1 (1 thread)</text>
+<text x="632" y="336.0" font-size="11" font-weight="400" fill="#57606a">Accelerate (multi-thread)</text>
+<text x="632" y="531.9" font-size="11" font-weight="400" fill="#9aa3ad">Accelerate (1 thread)</text>
+<text x="632" y="516.4" font-size="11" font-weight="400" fill="#9a6700">MpGEMM (multi-thread)</text>
+<text x="632" y="468.5" font-size="11" font-weight="400" fill="#d4a72c">MpGEMM (1 thread)</text>
+<text x="96.0" y="608.0" text-anchor="middle" font-size="10.5" fill="#8b949e">4096×4096</text>
+<text x="194.0" y="608.0" text-anchor="middle" font-size="10.5" fill="#8b949e">11008×4096</text>
+<text x="292.0" y="608.0" text-anchor="middle" font-size="10.5" fill="#8b949e">4096×11008</text>
+<text x="390.0" y="608.0" text-anchor="middle" font-size="10.5" fill="#8b949e">5120×5120</text>
+<text x="488.0" y="608.0" text-anchor="middle" font-size="10.5" fill="#8b949e">13824×5120</text>
+<text x="586.0" y="608.0" text-anchor="middle" font-size="10.5" fill="#8b949e">5120×13824</text>
+<line x1="62.0" y1="588.0" x2="620.0" y2="588.0" stroke="#8b949e" stroke-width="1" opacity="0.55"/>
+</svg>
