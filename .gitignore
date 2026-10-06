@@ -62,6 +62,8 @@ compile_commands.json
 .private/
 CLAUDE.md
 .claude
+# Private research notes and hardware measurements -- never published
+TOP-SECRET/
 
 # ============================================================
 # Instruments profiling

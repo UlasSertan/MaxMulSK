@@ -18,7 +18,7 @@ and writes ZA back to C. You pass three pointers and three sizes.
 
 ### 3 October 2026: standard cold benchmark, single- and multi-threaded
 
-- **MaxMulSK Multi-Threaded**, in development, against every FP32 GEMM tested on
+- **MaxMulSK Trio** (multi-threaded) against every FP32 GEMM tested on
   Apple M4, single- and multi-threaded (35 shapes: squares, LLM-shaped,
   DeepSeek-V3 and LLaMA; geometric mean of paired ratios):
   - **1.37× Apple Accelerate (multi-threaded).** Ahead by more than 5% on 25
@@ -42,12 +42,11 @@ and writes ZA back to C. You pass three pointers and three sizes.
 > machine heats up, and the differences between libraries change; we are
 > preparing a sustained (hot) benchmark for that case.
 
-> **MaxMulSK Multi-Threaded and v5.1 are in development; their code is not in
-> this repository yet.** The numbers are measured; the published kernels are v3
-> (`sme/v3/`) and v4c (`sme/v4/`). Both will be documented here when their code
-> is published.
+> **The code of MaxMulSK Trio (`sme/trio/`) and v5.1 (`sme/v5/`) is published with
+> this release; a detailed write-up follows.** See
+> [MaxMulSK Trio and v5.1](#maxmulsk-trio-and-v51).
 
-<img src="docs/img/bench9_square.svg" width="100%" alt="Square GEMM, cold: MaxMulSK Multi-Threaded and v5.1 vs MpGEMM and Accelerate, single and multi-threaded">
+<img src="docs/img/bench9_square.svg" width="100%" alt="Square GEMM, cold: MaxMulSK Trio and v5.1 vs MpGEMM and Accelerate, single and multi-threaded">
 
 <img src="docs/img/bench9_llm.svg" width="100%" alt="LLM-shaped GEMM, cold: MaxMulSK vs MpGEMM and Accelerate">
 
@@ -82,7 +81,7 @@ stated on each chart.</sub>
 
 <br>
 
-| | Shape (M×N×K) | MaxMulSK Multi-Threaded | MaxMulSK v5.1 (1 thread) | Accelerate (multi-thread) | Accelerate (1 thread) | MpGEMM (multi-thread) | MpGEMM (1 thread) |
+| | Shape (M×N×K) | MaxMulSK Trio | MaxMulSK v5.1 (1 thread) | Accelerate (multi-thread) | Accelerate (1 thread) | MpGEMM (multi-thread) | MpGEMM (1 thread) |
 |---|---|---:|---:|---:|---:|---:|---:|
 | square | 256×256×256 | 1598 | **1621** | 1605 | 1605 | 1575 | 1575 |
 |  | 512×512×512 | **1808** | 1758 | 1765 | 1765 | 1710 | 1786 |
@@ -259,6 +258,65 @@ here: v4c is behind Accelerate on them by 3 to 5%. Raw data:
 > options out there.
 
 ---
+
+## MaxMulSK Trio and v5.1
+
+**MaxMulSK Trio** is the multi-threaded kernel. It is called Trio because it runs three threads:
+one SME thread that only computes, and two NEON threads that feed it. It is not a
+multi-SME kernel. The M4 has one SME unit on its performance cluster, and Trio keeps that one
+unit busy.
+
+- The SME thread enters streaming mode once per call and stays there. It runs the micro-kernel
+  and writes C, and nothing else.
+- Two NEON threads on the other performance cores do all of the data movement. They copy B with
+  non-temporal loads and transpose A with NEON, into small rings that live in L2.
+- The threads talk through a few flags with release / acquire ordering. A NEON thread with
+  nothing to do sleeps in WFE until the SME thread frees a slot. Between calls it parks.
+- At the start of a call the SME thread packs the first piece of A and B itself, so compute
+  starts right away while the NEON threads wake up.
+- Same blocking and the same FMOPA order as v5.1, so the result is bit-identical to v5.1.
+- Intrinsics and ACLE only, no inline assembly.
+- Shapes: M % 16 == 0, N % 64 == 0, K % 64 == 0 and M·N·K ≥ 256³. For anything else
+  `gemm()` returns false and you can call v5.1, which takes any shape.
+- 3 October cold benchmark (35 shapes): 1.37× Accelerate (multi-threaded), 1.32× MpGEMM
+  (multi-threaded), 1.31× v5.1.
+
+**MaxMulSK v5.1** is the single-thread kernel and the base Trio is built on.
+
+- Packing is taken out of the compute loops. B is packed inside the A pack in one fused pass
+  (B rows go into the free slots of the A transpose).
+- ZA is written to C directly with ST1W. On later K panels the old C is added into ZA with the
+  SME2 multi-vector FADD, and the next tile of C is prefetched while the current one computes.
+- One fixed plan (Mc 64, Nc 1024, Kc 1024), clamped to the shape. While a block computes, the
+  source rows of the next A pack are prefetched.
+- Any M, N, K.
+- 3 October cold benchmark: 1.19× Accelerate (1 thread), 1.08× MpGEMM (1 thread).
+
+**How Trio was designed.** Trio came out of measuring the M4's SME and trying designs
+against those measurements, over the second half of September 2026. Based on the data, I set
+the principles to follow during development: no data path should sit idle, every data path has
+one owner, and the SME should spend its cycles on compute and nothing else. Architecture,
+principles and data-flow design are my calls. Several low-level feed mechanisms (non-temporal
+loads, WFE waiting, unit size, A ring, idle policy) were proposed by Claude and adopted after
+measurement (see AI usage during Trio development, below).
+
+**Independence.** Designed and developed independently, starting in September 2026. The
+research log behind it is sealed with a SHA-256 hash in this release
+(`maxmulsk-research-log-2026-10-06.tar.gz`, SHA-256
+`00f32740ac9afb66b9b3ef893f613e0a78192744f39675e3bacec8a07326a668`).
+As far as we know, from our own reading and an AI-assisted
+literature search in October 2026 (MpGEMM, MTGEMM-A, BLIS, LIBXSMM and related work), feeding a
+single Apple SME compute thread from NEON threads on other cores has not been described before.
+If you know of earlier work, please tell us. We would be glad to learn from it and improve our
+approach.
+
+**AI usage during Trio development.** I used Claude Code while developing Trio. We agreed on the benchmarks together: I
+set the goals of each benchmark and what to be careful about, and Claude designed most of the
+details and proposed them. We went through the results together. Both of us came up with ideas,
+we combined them, and kept or dropped each one by measurement. Code mechanics are mostly by
+Claude, building on the earlier MaxMulSK kernels and what we learned from them.
+
+A detailed write-up of Trio and v5.1 is in preparation.
 
 ## Benchmarking and comparison
 
@@ -465,9 +523,24 @@ which costs nothing on aligned sizes. Blocking parameters are picked per shape
 from a small table in [`sme/support/gemm_tuning.hpp`](sme/support/gemm_tuning.hpp).
 That table only holds entries that beat the default across three separate runs.
 
+**MaxMulSK Trio** (multi-threaded) and **v5.1** (single thread):
+
+```cpp
+#include "sme/trio/trio.hpp"
+#include "sme/v5/sme-1x4-fusedpack-v51.hpp"
+
+// Keep one Engine for many calls: its two NEON threads live as long as it does.
+trio::Engine engine;
+// C = A * B, row-major FP32 (A is M x K, B is K x N, C is M x N). C is overwritten.
+if (!engine.gemm(A, B, C, M, K, N)) {
+    // shape outside Trio's range (see trio::supported): use v5.1
+    SMEKernels1x4FusedPackV51::run_multiplication(A, B, C, M, K, N);
+}
+```
+
 ## Kernel evolution
 
-There are seven generations so far. Each one targets whatever was actually
+There are eight generations so far. Each one targets whatever was actually
 limiting the one before it.
 
 | Generation | When | What changed | Bottleneck it attacked | Result |
@@ -479,7 +552,8 @@ limiting the one before it.
 | **v3, Acc-KcOut** <br><sub>all three geometries</sub> | 2026-09-09 | An outer Kc panel above the tile nest, so packed panels scale with Kc instead of K | v2's full-K packing footprint | **1.40–1.77 TFLOP/s** across the range |
 | **v4, Nc-blocked** <br><sub>v4c path</sub> | 2026-09-13 | An Nc block above the Mc loop bounds the packed working set whatever N is; a shape rule (v4c) picks between two fixed plans | packed B growing with N | 1.00× v3 over the 35 shapes: 1.11× on LLaMA, 1.05× on LLM shapes, 0.96× on squares |
 | **v5, fused pack + hoist** <br><sub>in development</sub> | 2026-09-27 | Packing hoisted out of the compute loops and A and B packed in one fused pass; more changes landed with it and will be documented with the code | packing on the critical path | 1.11× v4c over the 35 shapes |
-| **v5.1** | 2026-09-29 | TBA | TBA | 1.04× v5, 1.16× v4c over the 35 shapes |
+| **v5.1** | 2026-09-29 | v5 plus a compute-phase prefetch of the next A pack's source | the A pack's DRAM reads | 1.04× v5, 1.16× v4c over the 35 shapes |
+| **Trio** | 2026-10-01 | One SME thread that only computes, fed by two NEON threads (B copy, A transpose) through L2 rings | packing and data movement on the SME thread | 1.31× v5.1 over the 35 shapes (cold) |
 
 The fixed-cost reduction in v2 and v3 is worth a closer look, because it scales
 with the tile geometry in a way that has a clear explanation:
@@ -549,6 +623,10 @@ MaxMulSK/
 │   │   ├── v2/sme-1x4-acc-fast        #   pack A and B once for the whole matrix
 │   │   ├── v3/sme-1x4-acc-fast-kcout  #   same, per K panel
 │   │   └── v3/sme-1x4-acc-kcout-bdirect #  no pack_B at all, B read in place
+│   ├── v4/                            # Nc-blocked kernels (v4c path) and the first fused-pack driver
+│   ├── v5/                            # fused pack + hoist: v5, v5 prefetch copy, v5.1
+│   ├── trio/                          # MaxMulSK Trio: one SME compute thread, two NEON feeder threads
+│   ├── experimental/v5/               # split-unit experiments (NEON workers + one SME thread)
 │   └── support/
 │       ├── gemm_tuning.hpp/.cpp       # shape-dependent blocking table
 │       └── test_sme.hpp/.cpp          # dispatch surface: run / run_comparison / profile
@@ -579,6 +657,7 @@ MaxMulSK/
 ├── docs/
 │   ├── BENCHMARKS.md              # Every measurement, dated; superseded results marked, not removed
 │   └── COMPARISON.md              # Historical 2026-04 snapshot, kept for the progression
+├── capi/maxmulsk.h/.cpp           # thin C entry points (v3, v4c) for local use
 ├── main.cpp                       # Test runner + benchmark harness
 ├── TODO.md                        # Roadmap + fixed-bug archive
 └── GemmTemplate.tracetemplate     # Xcode Instruments template (PMU counter list)

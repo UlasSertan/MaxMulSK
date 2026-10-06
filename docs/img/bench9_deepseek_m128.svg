@@ -93,7 +93,7 @@
 <circle cx="390.0" cy="450.8" r="3.6" fill="#d4a72c"/>
 <circle cx="488.0" cy="394.7" r="3.6" fill="#d4a72c"/>
 <circle cx="586.0" cy="427.9" r="3.6" fill="#d4a72c"/>
-<text x="632" y="159.2" font-size="11" font-weight="400" fill="#0a7d6e">MaxMulSK Multi-Threaded</text>
+<text x="632" y="159.2" font-size="11" font-weight="400" fill="#0a7d6e">MaxMulSK Trio</text>
 <text x="632" y="395.0" font-size="11" font-weight="400" fill="#0969da">MaxMulSK v5.1 (1 thread)</text>
 <text x="632" y="450.2" font-size="11" font-weight="400" fill="#57606a">Accelerate (multi-thread)</text>
 <text x="632" y="522.5" font-size="11" font-weight="400" fill="#9aa3ad">Accelerate (1 thread)</text>

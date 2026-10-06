@@ -87,7 +87,7 @@ set_source_files_properties(neon/neon-8x12.cpp neon/test_neon.cpp PROPERTIES
 
 # SME: ARMv8.7 + SME/SME2 extensions, applied to every SME translation unit in
 # the tree so whichever target compiles one gets the same flag.
-set_source_files_properties(sme/experimental/v1/sme-1x4-sym-zainout.cpp sme/experimental/v1/sme-4x1-zapack.cpp sme/experimental/v2/sme-1x4-acc-fast.cpp sme/experimental/v3/sme-1x4-acc-fast-kcout.cpp sme/experimental/v3/sme-1x4-acc-kcout-bdirect.cpp sme/experimental/v4/sme-1x4-acc-kcout-small.cpp sme/experimental/v4/sme-1x4-bstream-ilv1.cpp sme/experimental/v4/sme-1x4-bstream-ilv2.cpp sme/experimental/v4/sme-1x4-bstream-ilv4.cpp sme/experimental/v4/sme-1x4-bstream-reg1.cpp sme/experimental/v4/sme-1x4-bstream-reg3.cpp sme/experimental/v4/sme-1x4-bstream-v3sched.cpp sme/support/gemm_tuning.cpp sme/support/test_sme.cpp sme/v1/sme-1x4-sym.cpp sme/v1/sme-1x4.cpp sme/v1/sme-2x2.cpp sme/v1/sme-4x1.cpp sme/v2/sme-1x4-acc-kc.cpp sme/v2/sme-1x4-acc.cpp sme/v3/sme-1x4-acc-kcout.cpp sme/v3/sme-2x2-acc-kcout.cpp sme/v3/sme-4x1-acc-kcout.cpp sme/v4/sme-1x4-general.cpp sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-gen.cpp sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-zapres.cpp sme/v4/sme-1x4-kcout-mc16-apack4za-bonce.cpp sme/v4/sme-1x4-kcout-ncblock-apack4za.cpp sme/v4/sme-1x4-panelfuse.cpp sme/v4/sme-1x4-v4c-dispatch.cpp PROPERTIES
+set_source_files_properties(sme/experimental/v1/sme-1x4-sym-zainout.cpp sme/experimental/v1/sme-4x1-zapack.cpp sme/experimental/v2/sme-1x4-acc-fast.cpp sme/experimental/v3/sme-1x4-acc-fast-kcout.cpp sme/experimental/v3/sme-1x4-acc-kcout-bdirect.cpp sme/experimental/v4/sme-1x4-acc-kcout-small.cpp sme/experimental/v4/sme-1x4-bstream-ilv1.cpp sme/experimental/v4/sme-1x4-bstream-ilv2.cpp sme/experimental/v4/sme-1x4-bstream-ilv4.cpp sme/experimental/v4/sme-1x4-bstream-reg1.cpp sme/experimental/v4/sme-1x4-bstream-reg3.cpp sme/experimental/v4/sme-1x4-bstream-v3sched.cpp sme/support/gemm_tuning.cpp sme/support/test_sme.cpp sme/v1/sme-1x4-sym.cpp sme/v1/sme-1x4.cpp sme/v1/sme-2x2.cpp sme/v1/sme-4x1.cpp sme/v2/sme-1x4-acc-kc.cpp sme/v2/sme-1x4-acc.cpp sme/v3/sme-1x4-acc-kcout.cpp sme/v3/sme-2x2-acc-kcout.cpp sme/v3/sme-4x1-acc-kcout.cpp sme/v4/sme-1x4-general.cpp sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-gen.cpp sme/v4/sme-1x4-kcout-mc16-apack4za-bonce-zapres.cpp sme/v4/sme-1x4-kcout-mc16-apack4za-bonce.cpp sme/v4/sme-1x4-kcout-ncblock-apack4za.cpp sme/v4/sme-1x4-panelfuse.cpp sme/v4/sme-1x4-v4c-dispatch.cpp sme/v4/sme-1x4-kcout-ncblock-fusepack.cpp sme/v5/sme-1x4-fusedpack.cpp sme/experimental/v5/sme-1x4-splitunit.cpp sme/experimental/v5/sme-1x4-splitunit-onestream.cpp PROPERTIES
         COMPILE_OPTIONS "-march=armv8.7-a+sme+sme2"
 )
 
@@ -98,6 +98,49 @@ target_include_directories(MaxMulSK PRIVATE
 
 target_link_libraries(MaxMulSK PRIVATE
         ${LIBOMP_LIBRARY}
+)
+
+# =============================================================================
+# C API (capi/maxmulsk.h): v3 and v4c behind two extern "C" functions, for
+# linking from other local codebases. Only capi/ is exposed to consumers.
+# The SME flags come from the set_source_files_properties list above.
+# =============================================================================
+
+add_library(maxmulsk_capi STATIC
+        capi/maxmulsk.cpp
+        sme/v3/sme-1x4-acc-kcout.cpp
+        sme/support/gemm_tuning.cpp
+        sme/v4/sme-1x4-kcout-ncblock-apack4za.cpp
+        sme/v4/sme-1x4-v4c-dispatch.cpp
+)
+
+target_compile_options(maxmulsk_capi PRIVATE
+        -O3 -Wall -Wextra
+        -mcpu=apple-m4
+)
+
+target_include_directories(maxmulsk_capi
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
+        PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/capi
+)
+
+# =============================================================================
+# MaxMulSK Trio (sme/trio): one SME compute thread fed by two NEON packer
+# threads. trio::Engine is the interface (sme/trio/trio.hpp).
+# =============================================================================
+
+add_library(maxmulsk_trio STATIC
+        sme/trio/trio_sme.cpp
+        sme/trio/trio_packers.cpp
+)
+
+target_compile_options(maxmulsk_trio PRIVATE
+        -O3 -Wall -Wextra
+        -mcpu=apple-m4 -march=armv8.7-a+sme+sme2
+)
+
+target_include_directories(maxmulsk_trio
+        PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/sme/trio
 )
 
 # =============================================================================
