@@ -7,7 +7,7 @@ packs A and B into kernel-friendly layouts, blocks the work over M, K and N for
 cache, runs the ZA outer-product compute, deals with partial tiles at the edges,
 and writes ZA back to C. You pass three pointers and three sizes.
 
-![C++20](https://img.shields.io/badge/C%2B%2B-20-blue) ![Arm SME2](https://img.shields.io/badge/ISA-Arm%20SME%2FSME2-lightgrey) ![License](https://img.shields.io/badge/license-Apache--2.0-green)
+![C++20](https://img.shields.io/badge/C%2B%2B-20-blue) ![Arm SME2](https://img.shields.io/badge/ISA-Arm%20SME%2FSME2-lightgrey) ![License](https://img.shields.io/badge/license-Apache--2.0-green) [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23210170.svg)](https://doi.org/10.5281/zenodo.23210170)
 
 ## Results
 

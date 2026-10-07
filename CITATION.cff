@@ -5,6 +5,7 @@ type: software
 authors:
   - family-names: "Kemeç"
     given-names: "Ulaş Sertan"
+doi: "10.5281/zenodo.23210170"
 repository-code: "https://github.com/UlasSertan/MaxMulSK"
 url: "https://ulassertan.github.io/"
 license: Apache-2.0
