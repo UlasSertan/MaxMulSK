@@ -1,0 +1,14 @@
+{
+  "title": "MaxMulSK: FP32 GEMM for Apple M4 (MaxMulSK Trio and v5.1)",
+  "upload_type": "software",
+  "description": "<p>MaxMulSK is an FP32 GEMM (matrix multiplication) library for the Apple M4, written against Arm SME/SME2. MaxMulSK Trio is a multi-threaded kernel: one SME thread that only computes, fed by two NEON threads through L2 rings. MaxMulSK v5.1 is the single-thread fused-pack kernel it is built on.</p><p>Research log seal (release trio-2026.10.06): maxmulsk-research-log-2026-10-06.tar.gz, SHA-256 00f32740ac9afb66b9b3ef893f613e0a78192744f39675e3bacec8a07326a668.</p>",
+  "creators": [
+    { "name": "Kemeç, Ulaş Sertan" }
+  ],
+  "license": "Apache-2.0",
+  "keywords": ["GEMM", "matrix multiplication", "Apple M4", "Arm SME", "SME2", "NEON", "Apple Silicon", "high-performance computing", "FP32"],
+  "related_identifiers": [
+    { "identifier": "https://github.com/UlasSertan/MaxMulSK", "relation": "isSupplementTo", "scheme": "url" },
+    { "identifier": "https://ulassertan.github.io/", "relation": "isDocumentedBy", "scheme": "url" }
+  ]
+}
